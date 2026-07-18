@@ -1,0 +1,25 @@
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Ll]ogs/
+[Uu]serSettings/
+[Mm]emoryCaptures/
+.utmp/
+
+# Build outputs
+[Bb]uilds/
+*.apk
+*.aab
+*.unitypackage
+
+# Logs
+*.log
+
+# IDE / OS
+.vs/
+.idea/
+*.csproj
+*.sln
+Thumbs.db
+.DS_Store
