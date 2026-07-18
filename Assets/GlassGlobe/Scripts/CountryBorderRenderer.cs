@@ -163,7 +163,7 @@ namespace GlassGlobe
                 return "Unknown";
             }
 
-            return string.Format("Nearest sample: {0}", nearestOutline.name);
+            return string.Format("Nearest: {0}", nearestOutline.name);
         }
 
         public static Material CreateDefaultBorderMaterial(Color color)
