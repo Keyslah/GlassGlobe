@@ -56,7 +56,9 @@ namespace GlassGlobe
         {
             if (!wantFeed)
             {
-                if (FeedActive)
+                if (FeedActive ||
+                    (webCamTexture != null && webCamTexture.isPlaying) ||
+                    FeedStatus != "Off")
                 {
                     StopFeed();
                 }
@@ -113,9 +115,10 @@ namespace GlassGlobe
         public void SetFeedWanted(bool value)
         {
             wantFeed = value;
-            if (!value && FeedActive)
+            if (!value)
             {
                 StopFeed();
+                return;
             }
 
             ApplyFov();

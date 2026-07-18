@@ -106,6 +106,7 @@ namespace GlassGlobe
         private GUIStyle bodyStyle;
         private GUIStyle statusStyle;
         private GUIStyle buttonStyle;
+        private GUIStyle entryButtonStyle;
         private Rect activeAreaRect;
         private float activeUiScale = 1f;
         private float lastInteractionTime;
@@ -125,6 +126,12 @@ namespace GlassGlobe
         private string longitudeText = "0.0000";
         private string customViewpointName = string.Empty;
         private string statusMessage = string.Empty;
+        private Vector2 settingsScrollPosition;
+        private Rect activeTouchViewportRect;
+        private int trackedTouchFingerId = -1;
+        private Vector2 touchStartScreenPoint;
+        private bool touchDragged;
+        private bool scrollTouchActive;
 
         public static GlassGlobeSettingsController EnsureInstance(GlassGlobeHUD owner)
         {
@@ -171,6 +178,11 @@ namespace GlassGlobe
             {
                 hud.showHud = hudWasVisible;
             }
+
+            if (phonePose != null)
+            {
+                phonePose.DragInputBlocked = false;
+            }
         }
 
         private void Update()
@@ -182,6 +194,11 @@ namespace GlassGlobe
             HandleMobileTouch();
             ApplySettingsIfChanged();
 
+            if (phonePose != null)
+            {
+                phonePose.DragInputBlocked = currentPage != SettingsPage.Closed;
+            }
+
             if (currentPage != SettingsPage.Closed && hud != null)
             {
                 hud.showHud = false;
@@ -191,7 +208,10 @@ namespace GlassGlobe
         private void OnGUI()
         {
             EnsureStyles();
-            touchTargets.Clear();
+            if (Application.isMobilePlatform && Event.current.type == EventType.Repaint)
+            {
+                touchTargets.Clear();
+            }
 
             if (currentPage == SettingsPage.Closed)
             {
@@ -217,15 +237,34 @@ namespace GlassGlobe
                 return;
             }
 
-            float width = Mathf.Clamp(Screen.width * 0.26f, 132f, 220f);
-            float height = Mathf.Clamp(Screen.height * 0.06f, 48f, 72f);
-            Rect buttonRect = new Rect(Screen.width - width - 20f, Screen.height - height - 24f, width, height);
+            Rect safeArea = Screen.safeArea;
+            float minimumTouchHeight = Application.isMobilePlatform && Screen.dpi > 0f
+                ? Mathf.Clamp(Screen.dpi * 0.3f, 48f, 144f)
+                : 48f;
+            float height = Mathf.Max(
+                Mathf.Clamp(Screen.height * 0.06f, 48f, 72f),
+                minimumTouchHeight);
+            float maximumWidth = Mathf.Max(120f, safeArea.width - 40f);
+            float minimumWidth = Mathf.Min(maximumWidth, Mathf.Max(132f, height * 2f));
+            float width = Mathf.Clamp(
+                Screen.width * 0.26f,
+                minimumWidth,
+                Mathf.Min(280f, maximumWidth));
+            float safeBottom = Screen.height - safeArea.yMin;
+            Rect buttonRect = new Rect(
+                safeArea.xMax - width - 20f,
+                safeBottom - height - 24f,
+                width,
+                height);
 
             Color previousColor = GUI.color;
             bool previousEnabled = GUI.enabled;
             GUI.color = new Color(previousColor.r, previousColor.g, previousColor.b, previousColor.a * alpha);
             GUI.enabled = alpha > 0.15f;
-            bool clicked = GUI.Button(buttonRect, "Settings", buttonStyle);
+            entryButtonStyle.fontSize = Application.isMobilePlatform
+                ? Mathf.RoundToInt(buttonStyle.fontSize * GetMobileUiScale())
+                : buttonStyle.fontSize;
+            bool clicked = GUI.Button(buttonRect, "Settings", entryButtonStyle);
             GUI.enabled = previousEnabled;
             GUI.color = previousColor;
 
@@ -247,23 +286,33 @@ namespace GlassGlobe
             GUI.Box(new Rect(0f, 0f, Screen.width, Screen.height), GUIContent.none);
             GUI.color = previousColor;
 
-            activeUiScale = Application.isMobilePlatform
-                ? Mathf.Clamp(Screen.width / 540f, 1f, 2f)
-                : 1f;
+            activeUiScale = GetMobileUiScale();
 
-            float logicalWidth = Screen.width / activeUiScale;
-            float logicalHeight = Screen.height / activeUiScale;
+            Rect safeArea = Screen.safeArea;
+            float safeX = safeArea.xMin / activeUiScale;
+            float safeY = (Screen.height - safeArea.yMax) / activeUiScale;
+            float logicalWidth = safeArea.width / activeUiScale;
+            float logicalHeight = safeArea.height / activeUiScale;
             float panelWidth = Mathf.Min(540f, logicalWidth - 24f);
             float panelHeight = Mathf.Min(780f, logicalHeight - 24f);
             activeAreaRect = new Rect(
-                (logicalWidth - panelWidth) * 0.5f,
-                (logicalHeight - panelHeight) * 0.5f,
+                safeX + (logicalWidth - panelWidth) * 0.5f,
+                safeY + (logicalHeight - panelHeight) * 0.5f,
                 panelWidth,
                 panelHeight);
 
             Matrix4x4 previousMatrix = GUI.matrix;
             GUI.matrix = Matrix4x4.Scale(new Vector3(activeUiScale, activeUiScale, 1f));
             GUILayout.BeginArea(activeAreaRect, GUI.skin.box);
+            activeTouchViewportRect = new Rect(
+                activeAreaRect.x * activeUiScale,
+                activeAreaRect.y * activeUiScale,
+                activeAreaRect.width * activeUiScale,
+                activeAreaRect.height * activeUiScale);
+            settingsScrollPosition = GUILayout.BeginScrollView(
+                settingsScrollPosition,
+                false,
+                false);
 
             switch (currentPage)
             {
@@ -281,6 +330,7 @@ namespace GlassGlobe
                     break;
             }
 
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
             GUI.matrix = previousMatrix;
         }
@@ -293,11 +343,11 @@ namespace GlassGlobe
             GUILayout.Space(18f);
             GUILayout.Label("Choose a settings category", bodyStyle);
             GUILayout.Space(10f);
-            DrawButton("Camera", delegate { currentPage = SettingsPage.Camera; }, 58f);
+            DrawButton("Camera", delegate { ShowPage(SettingsPage.Camera); }, 58f);
             GUILayout.Space(8f);
-            DrawButton("Viewpoint", delegate { currentPage = SettingsPage.Viewpoint; }, 58f);
+            DrawButton("Viewpoint", delegate { ShowPage(SettingsPage.Viewpoint); }, 58f);
             GUILayout.Space(8f);
-            DrawButton("Privacy", delegate { currentPage = SettingsPage.Privacy; }, 58f);
+            DrawButton("Privacy", delegate { ShowPage(SettingsPage.Privacy); }, 58f);
             GUILayout.FlexibleSpace();
             GUILayout.Label("Additional settings categories can be added without changing this navigation pattern.", bodyStyle);
         }
@@ -383,7 +433,9 @@ namespace GlassGlobe
             GUILayout.Space(12f);
             GUILayout.Label("View from a city or country", headingStyle);
             GUILayout.Label("Search the included city presets and all countries in the bundled Natural Earth data.", bodyStyle);
-            viewpointSearch = GUILayout.TextField(viewpointSearch ?? string.Empty, GUILayout.Height(38f));
+            viewpointSearch = GUILayout.TextField(
+                viewpointSearch ?? string.Empty,
+                GUILayout.Height(GetInteractiveControlHeight(38f)));
             BuildFilteredChoices();
 
             int visibleChoiceCount = Mathf.Min(6, filteredChoices.Count);
@@ -404,14 +456,20 @@ namespace GlassGlobe
             GUILayout.Label("View from coordinates", headingStyle);
             GUILayout.BeginHorizontal();
             GUILayout.Label("Lat", bodyStyle, GUILayout.Width(32f));
-            latitudeText = GUILayout.TextField(latitudeText ?? string.Empty, GUILayout.Height(36f));
+            latitudeText = GUILayout.TextField(
+                latitudeText ?? string.Empty,
+                GUILayout.Height(GetInteractiveControlHeight(36f)));
             GUILayout.Space(8f);
             GUILayout.Label("Lon", bodyStyle, GUILayout.Width(32f));
-            longitudeText = GUILayout.TextField(longitudeText ?? string.Empty, GUILayout.Height(36f));
+            longitudeText = GUILayout.TextField(
+                longitudeText ?? string.Empty,
+                GUILayout.Height(GetInteractiveControlHeight(36f)));
             GUILayout.EndHorizontal();
             GUILayout.Space(5f);
             GUILayout.Label("Name shown in the HUD (optional)", bodyStyle);
-            customViewpointName = GUILayout.TextField(customViewpointName ?? string.Empty, GUILayout.Height(36f));
+            customViewpointName = GUILayout.TextField(
+                customViewpointName ?? string.Empty,
+                GUILayout.Height(GetInteractiveControlHeight(36f)));
             GUILayout.Space(5f);
             DrawButton("View From These Coordinates", ApplyManualViewpoint, 42f);
 
@@ -429,7 +487,7 @@ namespace GlassGlobe
             GUILayout.BeginHorizontal();
             DrawButton("Back to Viewpoint", BackToViewpoint, 44f);
             GUILayout.Space(8f);
-            DrawButton("Back to Settings", delegate { currentPage = SettingsPage.Settings; }, 44f);
+            DrawButton("Back to Settings", delegate { ShowPage(SettingsPage.Settings); }, 44f);
             GUILayout.EndHorizontal();
         }
 
@@ -440,7 +498,10 @@ namespace GlassGlobe
 
         private void DrawButton(string text, Action action, float height)
         {
-            bool clicked = GUILayout.Button(text, buttonStyle, GUILayout.Height(height));
+            bool clicked = GUILayout.Button(
+                text,
+                buttonStyle,
+                GUILayout.Height(GetInteractiveControlHeight(height)));
             Rect localRect = GUILayoutUtility.GetLastRect();
             RegisterLocalTouch(localRect, action);
             if (clicked && !Application.isMobilePlatform)
@@ -451,22 +512,28 @@ namespace GlassGlobe
 
         private void RegisterLocalTouch(Rect localRect, Action action)
         {
-            if (!Application.isMobilePlatform || action == null)
+            if (!Application.isMobilePlatform || action == null ||
+                Event.current.type != EventType.Repaint)
             {
                 return;
             }
 
             Rect screenRect = new Rect(
-                (activeAreaRect.x + localRect.x) * activeUiScale,
-                (activeAreaRect.y + localRect.y) * activeUiScale,
+                (activeAreaRect.x + localRect.x - settingsScrollPosition.x) * activeUiScale,
+                (activeAreaRect.y + localRect.y - settingsScrollPosition.y) * activeUiScale,
                 localRect.width * activeUiScale,
                 localRect.height * activeUiScale);
-            RegisterScreenTouch(screenRect, action);
+            Rect clippedRect = IntersectRects(screenRect, activeTouchViewportRect);
+            if (clippedRect.width > 0f && clippedRect.height > 0f)
+            {
+                RegisterScreenTouch(clippedRect, action);
+            }
         }
 
         private void RegisterScreenTouch(Rect screenRect, Action action)
         {
-            if (!Application.isMobilePlatform || action == null)
+            if (!Application.isMobilePlatform || action == null ||
+                Event.current.type != EventType.Repaint)
             {
                 return;
             }
@@ -482,24 +549,70 @@ namespace GlassGlobe
             }
 
             Touch touch = Input.GetTouch(0);
+            Vector2 screenPoint = new Vector2(touch.position.x, Screen.height - touch.position.y);
+            if (touch.phase == TouchPhase.Began)
+            {
+                trackedTouchFingerId = touch.fingerId;
+                touchStartScreenPoint = screenPoint;
+                touchDragged = false;
+                scrollTouchActive = currentPage != SettingsPage.Closed &&
+                    activeTouchViewportRect.Contains(screenPoint);
+                return;
+            }
+
+            if (touch.fingerId != trackedTouchFingerId)
+            {
+                return;
+            }
+
+            float dragThreshold = 18f * Mathf.Max(1f, activeUiScale);
+            if ((screenPoint - touchStartScreenPoint).sqrMagnitude > dragThreshold * dragThreshold)
+            {
+                touchDragged = true;
+            }
+
+            if (touch.phase == TouchPhase.Moved && scrollTouchActive)
+            {
+                settingsScrollPosition.y = Mathf.Max(
+                    0f,
+                    settingsScrollPosition.y + touch.deltaPosition.y / Mathf.Max(1f, activeUiScale));
+                lastInteractionTime = Time.unscaledTime;
+                return;
+            }
+
+            if (touch.phase == TouchPhase.Canceled)
+            {
+                ResetTrackedTouch();
+                return;
+            }
+
             if (touch.phase != TouchPhase.Ended)
             {
                 return;
             }
 
-            Vector2 screenPoint = new Vector2(touch.position.x, Screen.height - touch.position.y);
+            if (touchDragged)
+            {
+                ResetTrackedTouch();
+                return;
+            }
+
             for (int index = touchTargets.Count - 1; index >= 0; index--)
             {
                 TouchTarget target = touchTargets[index];
-                if (!target.ScreenRect.Contains(screenPoint))
+                if (!target.ScreenRect.Contains(touchStartScreenPoint) ||
+                    !target.ScreenRect.Contains(screenPoint))
                 {
                     continue;
                 }
 
                 target.Action();
                 lastInteractionTime = Time.unscaledTime;
+                ResetTrackedTouch();
                 return;
             }
+
+            ResetTrackedTouch();
         }
 
         private void TrackInteraction()
@@ -532,10 +645,14 @@ namespace GlassGlobe
                 hud.showHud = false;
             }
 
-            currentPage = SettingsPage.Settings;
+            ShowPage(SettingsPage.Settings);
             statusMessage = string.Empty;
             lastInteractionTime = Time.unscaledTime;
             ApplySavedSettings();
+            if (phonePose != null)
+            {
+                phonePose.DragInputBlocked = true;
+            }
         }
 
         private void BackToViewpoint()
@@ -544,6 +661,11 @@ namespace GlassGlobe
             if (hud != null)
             {
                 hud.showHud = hudWasVisible;
+            }
+
+            if (phonePose != null)
+            {
+                phonePose.DragInputBlocked = false;
             }
 
             lastInteractionTime = Time.unscaledTime;
@@ -577,7 +699,12 @@ namespace GlassGlobe
         {
             float latitude;
             float longitude;
-            if (!TryParseFloat(latitudeText, out latitude) || !TryParseFloat(longitudeText, out longitude))
+            if (!TryParseFloat(latitudeText, out latitude) ||
+                !TryParseFloat(longitudeText, out longitude) ||
+                float.IsNaN(latitude) ||
+                float.IsInfinity(latitude) ||
+                float.IsNaN(longitude) ||
+                float.IsInfinity(longitude))
             {
                 statusMessage = "Enter valid latitude and longitude numbers.";
                 return;
@@ -613,6 +740,53 @@ namespace GlassGlobe
             }
 
             return float.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value);
+        }
+
+        private void ShowPage(SettingsPage page)
+        {
+            currentPage = page;
+            settingsScrollPosition = Vector2.zero;
+        }
+
+        private void ResetTrackedTouch()
+        {
+            trackedTouchFingerId = -1;
+            touchDragged = false;
+            scrollTouchActive = false;
+        }
+
+        private static Rect IntersectRects(Rect left, Rect right)
+        {
+            float xMin = Mathf.Max(left.xMin, right.xMin);
+            float yMin = Mathf.Max(left.yMin, right.yMin);
+            float xMax = Mathf.Min(left.xMax, right.xMax);
+            float yMax = Mathf.Min(left.yMax, right.yMax);
+            return xMax > xMin && yMax > yMin
+                ? Rect.MinMaxRect(xMin, yMin, xMax, yMax)
+                : Rect.zero;
+        }
+
+        private static float GetMobileUiScale()
+        {
+            if (!Application.isMobilePlatform)
+            {
+                return 1f;
+            }
+
+            if (Screen.dpi > 0f)
+            {
+                return Mathf.Clamp(Screen.dpi / 160f, 1f, 4f);
+            }
+
+            float shortestSide = Mathf.Min(Screen.width, Screen.height);
+            return Mathf.Clamp(shortestSide / 360f, 1f, 4f);
+        }
+
+        private static float GetInteractiveControlHeight(float requestedHeight)
+        {
+            return Application.isMobilePlatform
+                ? Mathf.Max(48f, requestedHeight)
+                : requestedHeight;
         }
 
         private void ApplySavedSettings()
@@ -868,19 +1042,19 @@ namespace GlassGlobe
             }
 
             titleStyle = new GUIStyle(GUI.skin.label);
-            titleStyle.fontSize = 24;
+            titleStyle.fontSize = 28;
             titleStyle.fontStyle = FontStyle.Bold;
             titleStyle.alignment = TextAnchor.MiddleCenter;
             titleStyle.normal.textColor = new Color(0.92f, 0.98f, 1f, 1f);
 
             headingStyle = new GUIStyle(GUI.skin.label);
-            headingStyle.fontSize = 17;
+            headingStyle.fontSize = 20;
             headingStyle.fontStyle = FontStyle.Bold;
             headingStyle.normal.textColor = new Color(0.92f, 0.98f, 1f, 1f);
             headingStyle.wordWrap = true;
 
             bodyStyle = new GUIStyle(GUI.skin.label);
-            bodyStyle.fontSize = 14;
+            bodyStyle.fontSize = 16;
             bodyStyle.normal.textColor = new Color(0.88f, 0.94f, 1f, 1f);
             bodyStyle.wordWrap = true;
 
@@ -888,8 +1062,10 @@ namespace GlassGlobe
             statusStyle.fontStyle = FontStyle.Italic;
 
             buttonStyle = new GUIStyle(GUI.skin.button);
-            buttonStyle.fontSize = 15;
+            buttonStyle.fontSize = 18;
             buttonStyle.wordWrap = true;
+
+            entryButtonStyle = new GUIStyle(buttonStyle);
         }
     }
 }
