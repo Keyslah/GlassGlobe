@@ -1,3 +1,4 @@
+using System.Text;
 using UnityEngine;
 
 namespace GlassGlobe
@@ -12,6 +13,7 @@ namespace GlassGlobe
         public bool showHud = true;
         public Rect panelRect = new Rect(20f, 20f, 460f, 330f);
 
+        private GlassGlobeSettingsController settingsController;
         private GUIStyle titleStyle;
         private GUIStyle readoutStyle;
         private GUIStyle labelStyle;
@@ -39,9 +41,21 @@ namespace GlassGlobe
             Fov
         }
 
+        private void Awake()
+        {
+            GlassGlobeSettingsState.Load();
+            settingsController = GlassGlobeSettingsController.EnsureInstance(this);
+        }
+
         private void Update()
         {
             ResolveReferences();
+            if (!showHud)
+            {
+                activeTouchSlider = TouchSlider.None;
+                return;
+            }
+
             HandleMobileTouch();
         }
 
@@ -174,11 +188,13 @@ namespace GlassGlobe
                 poseSensors.NudgeHeading(5f);
             }
 
-            bool arClicked = GUILayout.Button(cameraFeed != null && cameraFeed.FeedActive ? "AR On" : "AR Off", GUILayout.Height(30f));
+            bool arClicked = GUILayout.Button(
+                GlassGlobeSettingsState.CameraFeedEnabled ? "AR On" : "AR Off",
+                GUILayout.Height(30f));
             arToggleTouchRect = ToScreenRect(GUILayoutUtility.GetLastRect());
-            if (arClicked && !Application.isMobilePlatform && cameraFeed != null)
+            if (arClicked && !Application.isMobilePlatform)
             {
-                cameraFeed.ToggleFeed();
+                ToggleCameraFeed();
             }
 
             GUILayout.EndHorizontal();
@@ -278,9 +294,9 @@ namespace GlassGlobe
                         return;
                     }
 
-                    if (cameraFeed != null && arToggleTouchRect.Contains(screenPoint))
+                    if (arToggleTouchRect.Contains(screenPoint))
                     {
-                        cameraFeed.ToggleFeed();
+                        ToggleCameraFeed();
                         return;
                     }
                 }
@@ -463,6 +479,16 @@ namespace GlassGlobe
             RefreshPreview();
         }
 
+        private void ToggleCameraFeed()
+        {
+            bool desired = !GlassGlobeSettingsState.CameraFeedEnabled;
+            GlassGlobeSettingsState.SetCameraFeedEnabled(desired);
+            if (cameraFeed != null)
+            {
+                cameraFeed.SetFeedWanted(desired);
+            }
+        }
+
         private void RefreshPreview()
         {
             phonePose.ApplyPose();
@@ -496,16 +522,37 @@ namespace GlassGlobe
                 }
             }
 
-            return string.Format(
-                "User Lat/Lon: {0}\nFar-Side Lat/Lon: {1}\nCountry/Region: {2}\nTilt: {3:0.0} deg   Heading: {4:0.0} deg   FOV: {5:0.0} deg\nEye-To-Phone: {6:0.0} in   Physical FOV: {7:0.0} deg",
-                phonePose.userCoordinate,
-                targetText,
-                regionText,
+            StringBuilder readout = new StringBuilder();
+            if (GlassGlobeSettingsState.ShowViewedFromName)
+            {
+                readout.Append("Viewed From: ").AppendLine(GlassGlobeSettingsState.ViewedFromLabel);
+            }
+
+            if (!GlassGlobeSettingsState.HideUserCoordinates)
+            {
+                readout.Append("User Lat/Lon: ").AppendLine(phonePose.userCoordinate.ToString());
+            }
+
+            if (!GlassGlobeSettingsState.HideFarSideCoordinates)
+            {
+                readout.Append("Far-Side Lat/Lon: ").AppendLine(targetText);
+            }
+
+            if (!GlassGlobeSettingsState.HideViewedRegion)
+            {
+                readout.Append("Country/Region: ").AppendLine(regionText);
+            }
+
+            readout.AppendFormat(
+                "Tilt: {0:0.0} deg   Heading: {1:0.0} deg   FOV: {2:0.0} deg\n",
                 phonePose.tiltDegrees,
                 phonePose.headingDegrees,
-                phonePose.cameraFovDegrees,
+                phonePose.cameraFovDegrees);
+            readout.AppendFormat(
+                "Eye-To-Phone: {0:0.0} in   Physical FOV: {1:0.0} deg",
                 phonePose.eyeToPhoneDistanceInches,
                 phonePose.PhysicalViewportFovDegrees);
+            return readout.ToString();
         }
 
         private string BuildSensorReadout()
@@ -528,20 +575,45 @@ namespace GlassGlobe
             }
 
             string feedText = cameraFeed != null ? cameraFeed.FeedStatus : "n/a";
+            StringBuilder readout = new StringBuilder();
+            readout.Append(poseSensors.LocationStatus).Append("   Camera: ").AppendLine(feedText);
 
-            return string.Format(
-                "{0}   Camera: {1}\nUser Lat/Lon: {2}  (+/-{3:0}m)\nFar-Side Lat/Lon: {4}\nCountry/Region: {5}\nHeading: {6:0.0} deg   Tilt: {7:0.0} deg\nCompass True: {8:0.0} deg   Correction: {9:0.0} deg   Offset: {10:0.0} deg",
-                poseSensors.LocationStatus,
-                feedText,
-                poseSensors.CurrentCoordinate,
-                poseSensors.LocationAccuracyMeters,
-                targetText,
-                regionText,
+            if (GlassGlobeSettingsState.ShowViewedFromName)
+            {
+                readout.Append("Viewed From: ").AppendLine(GlassGlobeSettingsState.ViewedFromLabel);
+            }
+
+            if (!GlassGlobeSettingsState.HideUserCoordinates)
+            {
+                readout.Append("User Lat/Lon: ").Append(poseSensors.CurrentCoordinate);
+                if (!GlassGlobeSettingsState.HideLocationAccuracy && poseSensors.HasLocationFix)
+                {
+                    readout.AppendFormat("  (+/-{0:0}m)", poseSensors.LocationAccuracyMeters);
+                }
+
+                readout.AppendLine();
+            }
+
+            if (!GlassGlobeSettingsState.HideFarSideCoordinates)
+            {
+                readout.Append("Far-Side Lat/Lon: ").AppendLine(targetText);
+            }
+
+            if (!GlassGlobeSettingsState.HideViewedRegion)
+            {
+                readout.Append("Country/Region: ").AppendLine(regionText);
+            }
+
+            readout.AppendFormat(
+                "Heading: {0:0.0} deg   Tilt: {1:0.0} deg\n",
                 poseSensors.HeadingDegrees,
-                poseSensors.TiltDegrees,
+                poseSensors.TiltDegrees);
+            readout.AppendFormat(
+                "Compass True: {0:0.0} deg   Correction: {1:0.0} deg   Offset: {2:0.0} deg",
                 poseSensors.CompassTrueHeadingDegrees,
                 poseSensors.CompassCorrectionDegrees,
                 poseSensors.headingOffsetDegrees);
+            return readout.ToString();
         }
 
         private void ResolveReferences()
@@ -569,6 +641,11 @@ namespace GlassGlobe
             if (borderRenderer == null)
             {
                 borderRenderer = FindFirstObjectByType<CountryBorderRenderer>();
+            }
+
+            if (settingsController == null)
+            {
+                settingsController = GlassGlobeSettingsController.EnsureInstance(this);
             }
         }
 
