@@ -127,6 +127,35 @@ public static class GlassGlobeProjectBuilder
             Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Camera Feed shader not found at scene build time.");
         }
 
+        GameObject galaxyObject = new GameObject("Milky Way Background");
+        galaxyObject.transform.SetParent(root.transform, false);
+        MilkyWayBackground milkyWay = galaxyObject.AddComponent<MilkyWayBackground>();
+        milkyWay.targetCamera = camera;
+        milkyWay.poseSensors = poseSensors;
+        milkyWay.simulator = phonePose;
+
+        Shader galaxyShader = Shader.Find("GlassGlobe/Galaxy");
+        if (galaxyShader != null)
+        {
+            Material galaxyMaterial = new Material(galaxyShader);
+            galaxyMaterial.name = "GlassGlobe Galaxy";
+            Texture2D galaxyTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/GlassGlobe/Textures/MilkyWayPanorama.jpg");
+            if (galaxyTexture != null)
+            {
+                galaxyMaterial.mainTexture = galaxyTexture;
+            }
+            else
+            {
+                Debug.LogWarning("GlassGlobeProjectBuilder: Milky Way panorama texture not found at Assets/GlassGlobe/Textures/MilkyWayPanorama.jpg.");
+            }
+
+            milkyWay.galaxyMaterial = galaxyMaterial;
+        }
+        else
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Galaxy shader not found at scene build time.");
+        }
+
         GameObject borderRoot = new GameObject("Country Border Line Renderers");
         borderRoot.transform.SetParent(root.transform, false);
         CountryBorderRenderer borderRenderer = borderRoot.AddComponent<CountryBorderRenderer>();

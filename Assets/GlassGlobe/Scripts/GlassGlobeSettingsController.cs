@@ -19,6 +19,7 @@ namespace GlassGlobe
         public FarSideRaycaster farSideRaycaster;
         public CountryBorderRenderer borderRenderer;
         public CountryLabelController labelController;
+        public MilkyWayBackground milkyWay;
 
         [Min(0.5f)]
         public float settingsButtonVisibleSeconds = 3f;
@@ -32,6 +33,7 @@ namespace GlassGlobe
             Settings,
             Camera,
             Viewpoint,
+            Background,
             Privacy
         }
 
@@ -118,6 +120,8 @@ namespace GlassGlobe
         private bool appliedCameraSetting;
         private bool labelsSettingApplied;
         private bool appliedLabelsSetting;
+        private bool milkyWaySettingApplied;
+        private bool appliedMilkyWaySetting;
         private string appliedViewpointSignature;
         private bool choicesBuiltFromCountries;
         private string viewpointSearch = string.Empty;
@@ -276,6 +280,9 @@ namespace GlassGlobe
                 case SettingsPage.Viewpoint:
                     DrawViewpointPage();
                     break;
+                case SettingsPage.Background:
+                    DrawBackgroundPage();
+                    break;
                 case SettingsPage.Privacy:
                     DrawPrivacyPage();
                     break;
@@ -297,6 +304,8 @@ namespace GlassGlobe
             GUILayout.Space(8f);
             DrawButton("Viewpoint", delegate { currentPage = SettingsPage.Viewpoint; }, 58f);
             GUILayout.Space(8f);
+            DrawButton("Background", delegate { currentPage = SettingsPage.Background; }, 58f);
+            GUILayout.Space(8f);
             DrawButton("Privacy", delegate { currentPage = SettingsPage.Privacy; }, 58f);
             GUILayout.FlexibleSpace();
             GUILayout.Label("Additional settings categories can be added without changing this navigation pattern.", bodyStyle);
@@ -316,6 +325,24 @@ namespace GlassGlobe
             GUILayout.Space(12f);
             string feedStatus = cameraFeed != null ? cameraFeed.FeedStatus : "Camera component not found";
             GUILayout.Label("Status: " + feedStatus, statusStyle);
+        }
+
+        private void DrawBackgroundPage()
+        {
+            DrawCategoryHeader("Background");
+            GUILayout.Space(18f);
+            GUILayout.Label("Sky", headingStyle);
+            GUILayout.Label(
+                "Shows the Milky Way where it actually is right now for your viewpoint, seen through and around the Earth. Hidden while the camera feed covers the background.",
+                bodyStyle);
+            GUILayout.Space(10f);
+            DrawCheckbox(
+                "Milky Way Galaxy",
+                GlassGlobeSettingsState.MilkyWayEnabled,
+                delegate { SetMilkyWayEnabled(!GlassGlobeSettingsState.MilkyWayEnabled); });
+            GUILayout.Space(12f);
+            string milkyWayStatus = milkyWay != null ? milkyWay.StatusText : "Milky Way component not found";
+            GUILayout.Label("Status: " + milkyWayStatus, statusStyle);
         }
 
         private void DrawPrivacyPage()
@@ -563,6 +590,13 @@ namespace GlassGlobe
             ApplyCountryLabelSetting();
         }
 
+        private void SetMilkyWayEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetMilkyWayEnabled(value);
+            milkyWaySettingApplied = false;
+            ApplyMilkyWaySetting();
+        }
+
         private void SelectViewpoint(ViewpointChoice choice)
         {
             GlassGlobeSettingsState.SetViewpoint(choice.Coordinate, choice.Name);
@@ -621,6 +655,7 @@ namespace GlassGlobe
             ResolveReferences();
             ApplyCameraSetting();
             ApplyCountryLabelSetting();
+            ApplyMilkyWaySetting();
             ApplyViewpointSetting(true);
         }
 
@@ -628,6 +663,7 @@ namespace GlassGlobe
         {
             ApplyCameraSetting();
             ApplyCountryLabelSetting();
+            ApplyMilkyWaySetting();
             ApplyViewpointSetting(false);
         }
 
@@ -666,6 +702,24 @@ namespace GlassGlobe
             labelController.RebuildLabels();
             appliedLabelsSetting = desired;
             labelsSettingApplied = true;
+        }
+
+        private void ApplyMilkyWaySetting()
+        {
+            if (milkyWay == null)
+            {
+                return;
+            }
+
+            bool desired = GlassGlobeSettingsState.MilkyWayEnabled;
+            if (milkyWaySettingApplied && appliedMilkyWaySetting == desired)
+            {
+                return;
+            }
+
+            milkyWay.SetVisible(desired);
+            appliedMilkyWaySetting = desired;
+            milkyWaySettingApplied = true;
         }
 
         private void ApplyViewpointSetting(bool force)
@@ -857,6 +911,11 @@ namespace GlassGlobe
             if (labelController == null)
             {
                 labelController = FindFirstObjectByType<CountryLabelController>();
+            }
+
+            if (milkyWay == null)
+            {
+                milkyWay = FindFirstObjectByType<MilkyWayBackground>();
             }
         }
 
