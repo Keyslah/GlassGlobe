@@ -108,6 +108,25 @@ public static class GlassGlobeProjectBuilder
         poseSensors.observerHeightUnits = 0.35f;
         poseSensors.cameraFovDegrees = 32.4f;
 
+        CameraFeedRenderer cameraFeed = cameraObject.AddComponent<CameraFeedRenderer>();
+        cameraFeed.targetCamera = camera;
+        cameraFeed.poseSensors = poseSensors;
+        cameraFeed.feedVerticalFovDegrees = 70f;
+        cameraFeed.windowFovDegrees = 32.4f;
+        cameraFeed.startEnabledOnDevice = true;
+
+        Shader feedShader = Shader.Find("GlassGlobe/Camera Feed");
+        if (feedShader != null)
+        {
+            Material feedMaterial = new Material(feedShader);
+            feedMaterial.name = "GlassGlobe Camera Feed";
+            cameraFeed.feedMaterial = feedMaterial;
+        }
+        else
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Camera Feed shader not found at scene build time.");
+        }
+
         GameObject borderRoot = new GameObject("Country Border Line Renderers");
         borderRoot.transform.SetParent(root.transform, false);
         CountryBorderRenderer borderRenderer = borderRoot.AddComponent<CountryBorderRenderer>();
@@ -153,6 +172,7 @@ public static class GlassGlobeProjectBuilder
         GlassGlobeHUD hud = hudObject.AddComponent<GlassGlobeHUD>();
         hud.phonePose = phonePose;
         hud.poseSensors = poseSensors;
+        hud.cameraFeed = cameraFeed;
         hud.farSideRaycaster = raycaster;
         hud.borderRenderer = borderRenderer;
         hud.showHud = true;

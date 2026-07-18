@@ -6,6 +6,7 @@ namespace GlassGlobe
     {
         public PhonePoseSimulator phonePose;
         public PhonePoseSensors poseSensors;
+        public CameraFeedRenderer cameraFeed;
         public FarSideRaycaster farSideRaycaster;
         public CountryBorderRenderer borderRenderer;
         public bool showHud = true;
@@ -25,6 +26,7 @@ namespace GlassGlobe
         private Rect nudgeMinusOneTouchRect;
         private Rect nudgePlusOneTouchRect;
         private Rect nudgePlusFiveTouchRect;
+        private Rect arToggleTouchRect;
         private Rect activePanelRect;
         private float activeUiScale = 1f;
         private TouchSlider activeTouchSlider;
@@ -172,6 +174,13 @@ namespace GlassGlobe
                 poseSensors.NudgeHeading(5f);
             }
 
+            bool arClicked = GUILayout.Button(cameraFeed != null && cameraFeed.FeedActive ? "AR On" : "AR Off", GUILayout.Height(30f));
+            arToggleTouchRect = ToScreenRect(GUILayoutUtility.GetLastRect());
+            if (arClicked && !Application.isMobilePlatform && cameraFeed != null)
+            {
+                cameraFeed.ToggleFeed();
+            }
+
             GUILayout.EndHorizontal();
         }
 
@@ -266,6 +275,12 @@ namespace GlassGlobe
                     if (nudgePlusFiveTouchRect.Contains(screenPoint))
                     {
                         poseSensors.NudgeHeading(5f);
+                        return;
+                    }
+
+                    if (cameraFeed != null && arToggleTouchRect.Contains(screenPoint))
+                    {
+                        cameraFeed.ToggleFeed();
                         return;
                     }
                 }
@@ -512,9 +527,12 @@ namespace GlassGlobe
                 }
             }
 
+            string feedText = cameraFeed != null ? cameraFeed.FeedStatus : "n/a";
+
             return string.Format(
-                "{0}\nUser Lat/Lon: {1}  (+/-{2:0}m)\nFar-Side Lat/Lon: {3}\nCountry/Region: {4}\nHeading: {5:0.0} deg   Tilt: {6:0.0} deg\nCompass True: {7:0.0} deg   Correction: {8:0.0} deg   Offset: {9:0.0} deg",
+                "{0}   Camera: {1}\nUser Lat/Lon: {2}  (+/-{3:0}m)\nFar-Side Lat/Lon: {4}\nCountry/Region: {5}\nHeading: {6:0.0} deg   Tilt: {7:0.0} deg\nCompass True: {8:0.0} deg   Correction: {9:0.0} deg   Offset: {10:0.0} deg",
                 poseSensors.LocationStatus,
+                feedText,
                 poseSensors.CurrentCoordinate,
                 poseSensors.LocationAccuracyMeters,
                 targetText,
@@ -536,6 +554,11 @@ namespace GlassGlobe
             if (poseSensors == null)
             {
                 poseSensors = FindFirstObjectByType<PhonePoseSensors>();
+            }
+
+            if (cameraFeed == null)
+            {
+                cameraFeed = FindFirstObjectByType<CameraFeedRenderer>();
             }
 
             if (farSideRaycaster == null)
