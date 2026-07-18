@@ -70,11 +70,11 @@ namespace GlassGlobe
 
             GeoCoordinate coordinate = ResolveCoordinate();
             EarthMath.LocalFrame frame = EarthMath.GetLocalFrame(coordinate);
-            float lstDegrees = ComputeLocalSiderealDegrees(coordinate.Longitude);
+            float lstDegrees = SkyMath.ComputeLocalSiderealDegrees(coordinate.Longitude);
             float latitude = coordinate.Latitude;
 
-            Vector3 equatorialYWorld = EquatorialToWorld(new Vector3(0f, 1f, 0f), lstDegrees, latitude, frame);
-            Vector3 equatorialZWorld = EquatorialToWorld(new Vector3(0f, 0f, 1f), lstDegrees, latitude, frame);
+            Vector3 equatorialYWorld = SkyMath.EquatorialToWorld(new Vector3(0f, 1f, 0f), lstDegrees, latitude, frame);
+            Vector3 equatorialZWorld = SkyMath.EquatorialToWorld(new Vector3(0f, 0f, 1f), lstDegrees, latitude, frame);
 
             sphereTransform.position = camera.transform.position;
             sphereTransform.rotation = Quaternion.LookRotation(equatorialZWorld, equatorialYWorld);
@@ -84,9 +84,10 @@ namespace GlassGlobe
 
         private void UpdateStatus(float lstDegrees, float latitude, EarthMath.LocalFrame frame)
         {
-            Vector3 enu = EquatorialToEnu(galacticXEquatorial, lstDegrees, latitude);
-            float azimuth = Mathf.Repeat(Mathf.Atan2(enu.x, enu.y) * Mathf.Rad2Deg, 360f);
-            float altitude = Mathf.Asin(Mathf.Clamp(enu.z, -1f, 1f)) * Mathf.Rad2Deg;
+            Vector3 enu = SkyMath.EquatorialToEnu(galacticXEquatorial, lstDegrees, latitude);
+            float azimuth;
+            float altitude;
+            SkyMath.EnuToAzimuthAltitude(enu, out azimuth, out altitude);
             StatusText = string.Format(
                 "Visible. Galactic center: azimuth {0:0} deg, altitude {1:0} deg",
                 azimuth,
@@ -145,63 +146,10 @@ namespace GlassGlobe
         {
             // J2000: galactic center RA 266.4050, Dec -28.9362; north galactic
             // pole RA 192.8595, Dec +27.1284.
-            galacticXEquatorial = RaDecToEquatorial(266.4050f, -28.9362f);
-            galacticZEquatorial = RaDecToEquatorial(192.8595f, 27.1284f);
+            galacticXEquatorial = SkyMath.RaDecToEquatorial(266.4050f, -28.9362f);
+            galacticZEquatorial = SkyMath.RaDecToEquatorial(192.8595f, 27.1284f);
             galacticYEquatorial = Vector3.Cross(galacticZEquatorial, galacticXEquatorial).normalized;
             galacticXEquatorial = Vector3.Cross(galacticYEquatorial, galacticZEquatorial).normalized;
-        }
-
-        private static Vector3 RaDecToEquatorial(float raDegrees, float decDegrees)
-        {
-            float ra = raDegrees * Mathf.Deg2Rad;
-            float dec = decDegrees * Mathf.Deg2Rad;
-            float cosDec = Mathf.Cos(dec);
-            return new Vector3(cosDec * Mathf.Cos(ra), cosDec * Mathf.Sin(ra), Mathf.Sin(dec));
-        }
-
-        /// <summary>
-        /// East/North/Up components of an equatorial-frame direction for the
-        /// given local sidereal time and latitude. Returned as (E, N, U).
-        /// </summary>
-        private static Vector3 EquatorialToEnu(Vector3 equatorial, float lstDegrees, float latitudeDegrees)
-        {
-            float theta = lstDegrees * Mathf.Deg2Rad;
-            float cosTheta = Mathf.Cos(theta);
-            float sinTheta = Mathf.Sin(theta);
-            float xPrime = cosTheta * equatorial.x + sinTheta * equatorial.y;
-            float yPrime = -sinTheta * equatorial.x + cosTheta * equatorial.y;
-            float zPrime = equatorial.z;
-
-            float latitude = latitudeDegrees * Mathf.Deg2Rad;
-            float cosLat = Mathf.Cos(latitude);
-            float sinLat = Mathf.Sin(latitude);
-
-            float east = yPrime;
-            float north = cosLat * zPrime - sinLat * xPrime;
-            float up = sinLat * zPrime + cosLat * xPrime;
-            return new Vector3(east, north, up);
-        }
-
-        private static Vector3 EquatorialToWorld(Vector3 equatorial, float lstDegrees, float latitudeDegrees, EarthMath.LocalFrame frame)
-        {
-            Vector3 enu = EquatorialToEnu(equatorial, lstDegrees, latitudeDegrees);
-            return (enu.x * frame.East + enu.y * frame.North + enu.z * frame.Up).normalized;
-        }
-
-        private static float ComputeLocalSiderealDegrees(float longitudeEastDegrees)
-        {
-            DateTime nowUtc = DateTime.UtcNow;
-            double julianDay = nowUtc.Subtract(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds / 86400.0 + 2440587.5;
-            double daysSinceJ2000 = julianDay - 2451545.0;
-            double gmst = 280.46061837 + 360.98564736629 * daysSinceJ2000;
-            double lst = gmst + longitudeEastDegrees;
-            lst %= 360.0;
-            if (lst < 0.0)
-            {
-                lst += 360.0;
-            }
-
-            return (float)lst;
         }
 
         private void BuildSphere()

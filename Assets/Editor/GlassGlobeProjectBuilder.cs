@@ -139,7 +139,17 @@ public static class GlassGlobeProjectBuilder
         {
             Material galaxyMaterial = new Material(galaxyShader);
             galaxyMaterial.name = "GlassGlobe Galaxy";
-            Texture2D galaxyTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/GlassGlobe/Textures/MilkyWayPanorama.jpg");
+
+            const string galaxyTexturePath = "Assets/GlassGlobe/Textures/MilkyWayPanorama.jpg";
+            TextureImporter galaxyImporter = AssetImporter.GetAtPath(galaxyTexturePath) as TextureImporter;
+            if (galaxyImporter != null && galaxyImporter.maxTextureSize < 8192)
+            {
+                galaxyImporter.maxTextureSize = 8192;
+                galaxyImporter.SaveAndReimport();
+                Debug.Log("GlassGlobeProjectBuilder: raised Milky Way texture import cap to 8192 so the panorama keeps its native resolution.");
+            }
+
+            Texture2D galaxyTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(galaxyTexturePath);
             if (galaxyTexture != null)
             {
                 galaxyMaterial.mainTexture = galaxyTexture;
@@ -154,6 +164,29 @@ public static class GlassGlobeProjectBuilder
         else
         {
             Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Galaxy shader not found at scene build time.");
+        }
+
+        GameObject sunMoonObject = new GameObject("Sun Moon Background");
+        sunMoonObject.transform.SetParent(root.transform, false);
+        SunMoonBackground sunMoon = sunMoonObject.AddComponent<SunMoonBackground>();
+        sunMoon.targetCamera = camera;
+        sunMoon.poseSensors = poseSensors;
+        sunMoon.simulator = phonePose;
+
+        Shader skySpriteShader = Shader.Find("GlassGlobe/Sky Sprite");
+        if (skySpriteShader != null)
+        {
+            Material sunMaterial = new Material(skySpriteShader);
+            sunMaterial.name = "GlassGlobe Sun Sprite";
+            sunMoon.sunMaterial = sunMaterial;
+
+            Material moonMaterial = new Material(skySpriteShader);
+            moonMaterial.name = "GlassGlobe Moon Sprite";
+            sunMoon.moonMaterial = moonMaterial;
+        }
+        else
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Sky Sprite shader not found at scene build time.");
         }
 
         GameObject borderRoot = new GameObject("Country Border Line Renderers");

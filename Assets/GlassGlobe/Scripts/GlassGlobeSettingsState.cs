@@ -23,6 +23,8 @@ namespace GlassGlobe
         private const string ViewpointLabelKey = Prefix + "ViewpointLabel";
         private const string CountryLabelsKey = Prefix + "CountryLabels";
         private const string MilkyWayKey = Prefix + "MilkyWay";
+        private const string SunKey = Prefix + "Sun";
+        private const string MoonKey = Prefix + "Moon";
 
         private static bool loaded;
 
@@ -38,6 +40,8 @@ namespace GlassGlobe
         public static string ViewpointLabel { get; private set; }
         public static bool CountryLabelsVisible { get; private set; }
         public static bool MilkyWayEnabled { get; private set; }
+        public static bool SunEnabled { get; private set; }
+        public static bool MoonEnabled { get; private set; }
 
         public static GeoCoordinate ViewpointCoordinate
         {
@@ -92,6 +96,8 @@ namespace GlassGlobe
             ViewpointLabel = PlayerPrefs.GetString(ViewpointLabelKey, "Selected viewpoint");
             CountryLabelsVisible = ReadBool(CountryLabelsKey, false);
             MilkyWayEnabled = ReadBool(MilkyWayKey, true);
+            SunEnabled = ReadBool(SunKey, true);
+            MoonEnabled = ReadBool(MoonKey, true);
             loaded = true;
         }
 
@@ -172,6 +178,20 @@ namespace GlassGlobe
             Save();
         }
 
+        public static void SetSunEnabled(bool value)
+        {
+            Load();
+            SunEnabled = value;
+            Save();
+        }
+
+        public static void SetMoonEnabled(bool value)
+        {
+            Load();
+            MoonEnabled = value;
+            Save();
+        }
+
         public static void SetMilkyWayEnabled(bool value)
         {
             Load();
@@ -198,6 +218,8 @@ namespace GlassGlobe
             PlayerPrefs.SetString(ViewpointLabelKey, ViewpointLabel ?? string.Empty);
             PlayerPrefs.SetInt(CountryLabelsKey, CountryLabelsVisible ? 1 : 0);
             PlayerPrefs.SetInt(MilkyWayKey, MilkyWayEnabled ? 1 : 0);
+            PlayerPrefs.SetInt(SunKey, SunEnabled ? 1 : 0);
+            PlayerPrefs.SetInt(MoonKey, MoonEnabled ? 1 : 0);
             PlayerPrefs.Save();
         }
     }
