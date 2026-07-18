@@ -52,6 +52,7 @@ namespace GlassGlobe
         public bool HasAttitude { get; private set; }
 
         private bool locationStartRequested;
+        private bool locationPermissionRequested;
         private bool compassCorrectionInitialized;
         private Quaternion smoothedRotation = Quaternion.identity;
         private bool hasSmoothedRotation;
@@ -60,6 +61,7 @@ namespace GlassGlobe
         private void Awake()
         {
             ResolveReferences();
+            GlassGlobeSettingsState.Load();
 
             SensorModeActive = Application.isMobilePlatform || useSensorsInEditor;
             LocationStatus = "Not started";
@@ -70,9 +72,18 @@ namespace GlassGlobe
                 return;
             }
 
-            if (simulator != null)
+            if (GlassGlobeSettingsState.ViewpointOverrideEnabled)
+            {
+                CurrentCoordinate = GlassGlobeSettingsState.ViewpointCoordinate;
+                LocationStatus = "Viewpoint override";
+            }
+            else if (simulator != null)
             {
                 CurrentCoordinate = simulator.userCoordinate;
+            }
+
+            if (simulator != null)
+            {
                 observerHeightUnits = simulator.observerHeightUnits;
                 simulator.enabled = false;
             }
@@ -81,12 +92,10 @@ namespace GlassGlobe
             Input.gyro.updateInterval = 0.0167f;
             Input.compass.enabled = true;
 
-#if UNITY_ANDROID && !UNITY_EDITOR
-            if (!Permission.HasUserAuthorizedPermission(Permission.FineLocation))
+            if (!GlassGlobeSettingsState.ViewpointOverrideEnabled)
             {
-                Permission.RequestUserPermission(Permission.FineLocation);
+                RequestLocationPermissionIfNeeded();
             }
-#endif
         }
 
         private void Update()
@@ -127,8 +136,31 @@ namespace GlassGlobe
             headingOffsetDegrees = Mathf.Repeat(headingOffsetDegrees + degrees + 180f, 360f) - 180f;
         }
 
+        public void RefreshViewpoint()
+        {
+            GlassGlobeSettingsState.Load();
+            hasSmoothedRotation = false;
+            if (!SensorModeActive)
+            {
+                return;
+            }
+
+            UpdateLocation();
+            UpdateAttitudeAndPose();
+        }
+
         private void UpdateLocation()
         {
+            GlassGlobeSettingsState.Load();
+            if (GlassGlobeSettingsState.ViewpointOverrideEnabled)
+            {
+                CurrentCoordinate = GlassGlobeSettingsState.ViewpointCoordinate;
+                HasLocationFix = false;
+                LocationAccuracyMeters = 0f;
+                LocationStatus = "Viewpoint override";
+                return;
+            }
+
             bool hasPermission = true;
 #if UNITY_ANDROID && !UNITY_EDITOR
             hasPermission = Permission.HasUserAuthorizedPermission(Permission.FineLocation);
@@ -136,6 +168,7 @@ namespace GlassGlobe
             if (!hasPermission)
             {
                 LocationStatus = "Waiting for location permission";
+                RequestLocationPermissionIfNeeded();
                 return;
             }
 
@@ -172,6 +205,17 @@ namespace GlassGlobe
                     LocationStatus = "GPS stopped";
                     break;
             }
+        }
+
+        private void RequestLocationPermissionIfNeeded()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!locationPermissionRequested && !Permission.HasUserAuthorizedPermission(Permission.FineLocation))
+            {
+                locationPermissionRequested = true;
+                Permission.RequestUserPermission(Permission.FineLocation);
+            }
+#endif
         }
 
         private void UpdateAttitudeAndPose()
