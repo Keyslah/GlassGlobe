@@ -22,6 +22,7 @@ namespace GlassGlobe
         private const string ViewpointLongitudeKey = Prefix + "ViewpointLongitude";
         private const string ViewpointLabelKey = Prefix + "ViewpointLabel";
         private const string CountryLabelsKey = Prefix + "CountryLabels";
+        private const string MilkyWayKey = Prefix + "MilkyWay";
 
         private static bool loaded;
 
@@ -36,6 +37,7 @@ namespace GlassGlobe
         public static float ViewpointLongitude { get; private set; }
         public static string ViewpointLabel { get; private set; }
         public static bool CountryLabelsVisible { get; private set; }
+        public static bool MilkyWayEnabled { get; private set; }
 
         public static GeoCoordinate ViewpointCoordinate
         {
@@ -89,6 +91,7 @@ namespace GlassGlobe
             ViewpointLongitude = PlayerPrefs.GetFloat(ViewpointLongitudeKey, 0f);
             ViewpointLabel = PlayerPrefs.GetString(ViewpointLabelKey, "Selected viewpoint");
             CountryLabelsVisible = ReadBool(CountryLabelsKey, false);
+            MilkyWayEnabled = ReadBool(MilkyWayKey, true);
             loaded = true;
         }
 
@@ -169,6 +172,13 @@ namespace GlassGlobe
             Save();
         }
 
+        public static void SetMilkyWayEnabled(bool value)
+        {
+            Load();
+            MilkyWayEnabled = value;
+            Save();
+        }
+
         private static bool ReadBool(string key, bool defaultValue)
         {
             return PlayerPrefs.GetInt(key, defaultValue ? 1 : 0) != 0;
@@ -187,6 +197,7 @@ namespace GlassGlobe
             PlayerPrefs.SetFloat(ViewpointLongitudeKey, ViewpointLongitude);
             PlayerPrefs.SetString(ViewpointLabelKey, ViewpointLabel ?? string.Empty);
             PlayerPrefs.SetInt(CountryLabelsKey, CountryLabelsVisible ? 1 : 0);
+            PlayerPrefs.SetInt(MilkyWayKey, MilkyWayEnabled ? 1 : 0);
             PlayerPrefs.Save();
         }
     }

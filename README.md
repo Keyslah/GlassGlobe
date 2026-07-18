@@ -60,6 +60,11 @@ outdoors, worse near metal or indoors. The **Align** button snaps to the compass
 Country boundaries: [Natural Earth](https://www.naturalearthdata.com/) 1:110m
 Admin 0 — public domain. Thank you, Natural Earth.
 
+Milky Way panorama: [ESO/S. Brunier](https://www.eso.org/public/images/eso0932a/)
+(eso0932a), CC BY 4.0. The panorama is authored in galactic coordinates; the app
+rotates it by your position and the current sidereal time so the galaxy sits
+where it really is.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
