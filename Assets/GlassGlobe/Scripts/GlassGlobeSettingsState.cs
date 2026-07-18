@@ -25,6 +25,8 @@ namespace GlassGlobe
         private const string MilkyWayKey = Prefix + "MilkyWay";
         private const string SunKey = Prefix + "Sun";
         private const string MoonKey = Prefix + "Moon";
+        private const string WeatherCloudsKey = Prefix + "WeatherClouds";
+        private const string WeatherRadarKey = Prefix + "WeatherRadar";
 
         private static bool loaded;
 
@@ -42,6 +44,8 @@ namespace GlassGlobe
         public static bool MilkyWayEnabled { get; private set; }
         public static bool SunEnabled { get; private set; }
         public static bool MoonEnabled { get; private set; }
+        public static bool WeatherCloudsEnabled { get; private set; }
+        public static bool WeatherRadarEnabled { get; private set; }
 
         public static GeoCoordinate ViewpointCoordinate
         {
@@ -98,6 +102,8 @@ namespace GlassGlobe
             MilkyWayEnabled = ReadBool(MilkyWayKey, true);
             SunEnabled = ReadBool(SunKey, true);
             MoonEnabled = ReadBool(MoonKey, true);
+            WeatherCloudsEnabled = ReadBool(WeatherCloudsKey, true);
+            WeatherRadarEnabled = ReadBool(WeatherRadarKey, true);
             loaded = true;
         }
 
@@ -199,6 +205,20 @@ namespace GlassGlobe
             Save();
         }
 
+        public static void SetWeatherCloudsEnabled(bool value)
+        {
+            Load();
+            WeatherCloudsEnabled = value;
+            Save();
+        }
+
+        public static void SetWeatherRadarEnabled(bool value)
+        {
+            Load();
+            WeatherRadarEnabled = value;
+            Save();
+        }
+
         private static bool ReadBool(string key, bool defaultValue)
         {
             return PlayerPrefs.GetInt(key, defaultValue ? 1 : 0) != 0;
@@ -220,6 +240,8 @@ namespace GlassGlobe
             PlayerPrefs.SetInt(MilkyWayKey, MilkyWayEnabled ? 1 : 0);
             PlayerPrefs.SetInt(SunKey, SunEnabled ? 1 : 0);
             PlayerPrefs.SetInt(MoonKey, MoonEnabled ? 1 : 0);
+            PlayerPrefs.SetInt(WeatherCloudsKey, WeatherCloudsEnabled ? 1 : 0);
+            PlayerPrefs.SetInt(WeatherRadarKey, WeatherRadarEnabled ? 1 : 0);
             PlayerPrefs.Save();
         }
     }

@@ -189,6 +189,27 @@ public static class GlassGlobeProjectBuilder
             Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Sky Sprite shader not found at scene build time.");
         }
 
+        GameObject weatherObject = new GameObject("Weather Overlay");
+        weatherObject.transform.SetParent(root.transform, false);
+        WeatherOverlay weather = weatherObject.AddComponent<WeatherOverlay>();
+        weather.globe = globe;
+
+        Shader weatherShader = Shader.Find("GlassGlobe/Weather");
+        if (weatherShader != null)
+        {
+            Material cloudMaterial = new Material(weatherShader);
+            cloudMaterial.name = "GlassGlobe Weather Clouds";
+            weather.cloudMaterial = cloudMaterial;
+
+            Material radarMaterial = new Material(weatherShader);
+            radarMaterial.name = "GlassGlobe Weather Radar";
+            weather.radarMaterial = radarMaterial;
+        }
+        else
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Weather shader not found at scene build time.");
+        }
+
         GameObject borderRoot = new GameObject("Country Border Line Renderers");
         borderRoot.transform.SetParent(root.transform, false);
         CountryBorderRenderer borderRenderer = borderRoot.AddComponent<CountryBorderRenderer>();
