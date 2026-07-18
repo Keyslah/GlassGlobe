@@ -20,6 +20,7 @@ namespace GlassGlobe
         public CountryBorderRenderer borderRenderer;
         public CountryLabelController labelController;
         public MilkyWayBackground milkyWay;
+        public SunMoonBackground sunMoon;
 
         [Min(0.5f)]
         public float settingsButtonVisibleSeconds = 3f;
@@ -123,6 +124,10 @@ namespace GlassGlobe
         private bool appliedLabelsSetting;
         private bool milkyWaySettingApplied;
         private bool appliedMilkyWaySetting;
+        private bool sunSettingApplied;
+        private bool appliedSunSetting;
+        private bool moonSettingApplied;
+        private bool appliedMoonSetting;
         private string appliedViewpointSignature;
         private bool choicesBuiltFromCountries;
         private string viewpointSearch = string.Empty;
@@ -390,9 +395,23 @@ namespace GlassGlobe
                 "Milky Way Galaxy",
                 GlassGlobeSettingsState.MilkyWayEnabled,
                 delegate { SetMilkyWayEnabled(!GlassGlobeSettingsState.MilkyWayEnabled); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Sun",
+                GlassGlobeSettingsState.SunEnabled,
+                delegate { SetSunEnabled(!GlassGlobeSettingsState.SunEnabled); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Moon",
+                GlassGlobeSettingsState.MoonEnabled,
+                delegate { SetMoonEnabled(!GlassGlobeSettingsState.MoonEnabled); });
             GUILayout.Space(12f);
             string milkyWayStatus = milkyWay != null ? milkyWay.StatusText : "Milky Way component not found";
-            GUILayout.Label("Status: " + milkyWayStatus, statusStyle);
+            GUILayout.Label("Milky Way: " + milkyWayStatus, statusStyle);
+            string sunStatus = sunMoon != null ? sunMoon.SunStatus : "Sun component not found";
+            GUILayout.Label("Sun: " + sunStatus, statusStyle);
+            string moonStatus = sunMoon != null ? sunMoon.MoonStatus : "Moon component not found";
+            GUILayout.Label("Moon: " + moonStatus, statusStyle);
         }
 
         private void DrawPrivacyPage()
@@ -719,6 +738,20 @@ namespace GlassGlobe
             ApplyMilkyWaySetting();
         }
 
+        private void SetSunEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetSunEnabled(value);
+            sunSettingApplied = false;
+            ApplySunMoonSettings();
+        }
+
+        private void SetMoonEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetMoonEnabled(value);
+            moonSettingApplied = false;
+            ApplySunMoonSettings();
+        }
+
         private void SelectViewpoint(ViewpointChoice choice)
         {
             GlassGlobeSettingsState.SetViewpoint(choice.Coordinate, choice.Name);
@@ -830,6 +863,7 @@ namespace GlassGlobe
             ApplyCameraSetting();
             ApplyCountryLabelSetting();
             ApplyMilkyWaySetting();
+            ApplySunMoonSettings();
             ApplyViewpointSetting(true);
         }
 
@@ -838,6 +872,7 @@ namespace GlassGlobe
             ApplyCameraSetting();
             ApplyCountryLabelSetting();
             ApplyMilkyWaySetting();
+            ApplySunMoonSettings();
             ApplyViewpointSetting(false);
         }
 
@@ -876,6 +911,30 @@ namespace GlassGlobe
             labelController.RebuildLabels();
             appliedLabelsSetting = desired;
             labelsSettingApplied = true;
+        }
+
+        private void ApplySunMoonSettings()
+        {
+            if (sunMoon == null)
+            {
+                return;
+            }
+
+            bool desiredSun = GlassGlobeSettingsState.SunEnabled;
+            if (!sunSettingApplied || appliedSunSetting != desiredSun)
+            {
+                sunMoon.SetSunVisible(desiredSun);
+                appliedSunSetting = desiredSun;
+                sunSettingApplied = true;
+            }
+
+            bool desiredMoon = GlassGlobeSettingsState.MoonEnabled;
+            if (!moonSettingApplied || appliedMoonSetting != desiredMoon)
+            {
+                sunMoon.SetMoonVisible(desiredMoon);
+                appliedMoonSetting = desiredMoon;
+                moonSettingApplied = true;
+            }
         }
 
         private void ApplyMilkyWaySetting()
@@ -1090,6 +1149,11 @@ namespace GlassGlobe
             if (milkyWay == null)
             {
                 milkyWay = FindFirstObjectByType<MilkyWayBackground>();
+            }
+
+            if (sunMoon == null)
+            {
+                sunMoon = FindFirstObjectByType<SunMoonBackground>();
             }
         }
 
