@@ -21,6 +21,7 @@ namespace GlassGlobe
         public CountryLabelController labelController;
         public MilkyWayBackground milkyWay;
         public SunMoonBackground sunMoon;
+        public WeatherOverlay weather;
 
         [Min(0.5f)]
         public float settingsButtonVisibleSeconds = 3f;
@@ -35,6 +36,7 @@ namespace GlassGlobe
             Camera,
             Viewpoint,
             Background,
+            Weather,
             Orient,
             OrientCapture,
             Privacy
@@ -136,6 +138,10 @@ namespace GlassGlobe
         private bool appliedSunSetting;
         private bool moonSettingApplied;
         private bool appliedMoonSetting;
+        private bool weatherCloudsSettingApplied;
+        private bool appliedWeatherCloudsSetting;
+        private bool weatherRadarSettingApplied;
+        private bool appliedWeatherRadarSetting;
         private AlignBody alignTarget = AlignBody.Sun;
         private Texture2D alignRingTexture;
         private GUIStyle captureTextStyle;
@@ -355,6 +361,9 @@ namespace GlassGlobe
                 case SettingsPage.Background:
                     DrawBackgroundPage();
                     break;
+                case SettingsPage.Weather:
+                    DrawWeatherPage();
+                    break;
                 case SettingsPage.Orient:
                     DrawOrientPage();
                     break;
@@ -381,6 +390,8 @@ namespace GlassGlobe
             DrawButton("Viewpoint", delegate { ShowPage(SettingsPage.Viewpoint); }, 58f);
             GUILayout.Space(8f);
             DrawButton("Background", delegate { ShowPage(SettingsPage.Background); }, 58f);
+            GUILayout.Space(8f);
+            DrawButton("Weather", delegate { ShowPage(SettingsPage.Weather); }, 58f);
             GUILayout.Space(8f);
             DrawButton("Orient", delegate { ShowPage(SettingsPage.Orient); }, 58f);
             GUILayout.Space(8f);
@@ -435,6 +446,35 @@ namespace GlassGlobe
             GUILayout.Label("Sun: " + sunStatus, statusStyle);
             string moonStatus = sunMoon != null ? sunMoon.MoonStatus : "Moon component not found";
             GUILayout.Label("Moon: " + moonStatus, statusStyle);
+        }
+
+        private void DrawWeatherPage()
+        {
+            DrawCategoryHeader("Weather");
+            GUILayout.Space(18f);
+            GUILayout.Label("Live weather on the Earth", headingStyle);
+            GUILayout.Label(
+                "Draws current weather on the far side of the glass Earth. Clouds come from live satellite infrared imagery; rain and snow come from ground radar where networks exist. Both refresh about every 10 minutes over the network.",
+                bodyStyle);
+            GUILayout.Space(10f);
+            DrawCheckbox(
+                "Clouds (satellite)",
+                GlassGlobeSettingsState.WeatherCloudsEnabled,
+                delegate { SetWeatherCloudsEnabled(!GlassGlobeSettingsState.WeatherCloudsEnabled); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Rain / snow radar",
+                GlassGlobeSettingsState.WeatherRadarEnabled,
+                delegate { SetWeatherRadarEnabled(!GlassGlobeSettingsState.WeatherRadarEnabled); });
+            GUILayout.Space(12f);
+            string cloudsStatus = weather != null ? weather.CloudsStatus : "Weather component not found";
+            GUILayout.Label("Clouds: " + cloudsStatus, statusStyle);
+            string radarStatus = weather != null ? weather.RadarStatus : "Weather component not found";
+            GUILayout.Label("Radar: " + radarStatus, statusStyle);
+            GUILayout.Space(8f);
+            GUILayout.Label(
+                "Cloud imagery: NOAA GOES and Himawari via NASA GIBS, plus EUMETSAT Meteosat. Radar: RainViewer.com, personal use.",
+                bodyStyle);
         }
 
         private void DrawOrientPage()
@@ -1096,6 +1136,20 @@ namespace GlassGlobe
             ApplySunMoonSettings();
         }
 
+        private void SetWeatherCloudsEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetWeatherCloudsEnabled(value);
+            weatherCloudsSettingApplied = false;
+            ApplyWeatherSettings();
+        }
+
+        private void SetWeatherRadarEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetWeatherRadarEnabled(value);
+            weatherRadarSettingApplied = false;
+            ApplyWeatherSettings();
+        }
+
         private void SelectViewpoint(ViewpointChoice choice)
         {
             GlassGlobeSettingsState.SetViewpoint(choice.Coordinate, choice.Name);
@@ -1208,6 +1262,7 @@ namespace GlassGlobe
             ApplyCountryLabelSetting();
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
+            ApplyWeatherSettings();
             ApplyViewpointSetting(true);
         }
 
@@ -1217,6 +1272,7 @@ namespace GlassGlobe
             ApplyCountryLabelSetting();
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
+            ApplyWeatherSettings();
             ApplyViewpointSetting(false);
         }
 
@@ -1278,6 +1334,30 @@ namespace GlassGlobe
                 sunMoon.SetMoonVisible(desiredMoon);
                 appliedMoonSetting = desiredMoon;
                 moonSettingApplied = true;
+            }
+        }
+
+        private void ApplyWeatherSettings()
+        {
+            if (weather == null)
+            {
+                return;
+            }
+
+            bool desiredClouds = GlassGlobeSettingsState.WeatherCloudsEnabled;
+            if (!weatherCloudsSettingApplied || appliedWeatherCloudsSetting != desiredClouds)
+            {
+                weather.SetCloudsVisible(desiredClouds);
+                appliedWeatherCloudsSetting = desiredClouds;
+                weatherCloudsSettingApplied = true;
+            }
+
+            bool desiredRadar = GlassGlobeSettingsState.WeatherRadarEnabled;
+            if (!weatherRadarSettingApplied || appliedWeatherRadarSetting != desiredRadar)
+            {
+                weather.SetRadarVisible(desiredRadar);
+                appliedWeatherRadarSetting = desiredRadar;
+                weatherRadarSettingApplied = true;
             }
         }
 
@@ -1498,6 +1578,11 @@ namespace GlassGlobe
             if (sunMoon == null)
             {
                 sunMoon = FindFirstObjectByType<SunMoonBackground>();
+            }
+
+            if (weather == null)
+            {
+                weather = FindFirstObjectByType<WeatherOverlay>();
             }
         }
 

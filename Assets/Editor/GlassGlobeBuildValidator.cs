@@ -99,6 +99,14 @@ public static class GlassGlobeBuildValidator
         LogRequired(ref errors, FindInScene<GlassGlobeReticle>(scene) != null, "GlassGlobeBuildValidator: missing center reticle object.");
         LogRequired(ref errors, FindInScene<CountryLabelController>(scene) != null, "GlassGlobeBuildValidator: missing CountryLabelController.");
 
+        WeatherOverlay weather = FindInScene<WeatherOverlay>(scene);
+        LogRequired(ref errors, weather != null, "GlassGlobeBuildValidator: missing WeatherOverlay.");
+        if (weather != null)
+        {
+            LogRequired(ref errors, weather.cloudMaterial != null, "GlassGlobeBuildValidator: WeatherOverlay cloud material is not assigned, the weather shader would be stripped.");
+            LogRequired(ref errors, weather.radarMaterial != null, "GlassGlobeBuildValidator: WeatherOverlay radar material is not assigned, the weather shader would be stripped.");
+        }
+
         CountryBorderRenderer borders = FindInScene<CountryBorderRenderer>(scene);
         LogRequired(ref errors, borders != null, "GlassGlobeBuildValidator: missing CountryBorderRenderer.");
         if (borders != null)
