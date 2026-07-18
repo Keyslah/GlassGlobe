@@ -38,6 +38,8 @@ namespace GlassGlobe
         public float dragHeadingSensitivity = 0.18f;
         public float dragTiltSensitivity = 0.12f;
 
+        public bool DragInputBlocked { get; set; }
+
         public Vector3 UserSurfacePosition { get; private set; }
         public Vector3 ObserverPosition { get; private set; }
         public Vector3 LocalUp { get; private set; }
@@ -91,8 +93,9 @@ namespace GlassGlobe
 
         private void UpdateDragControls()
         {
-            if (!enableDragControls)
+            if (!enableDragControls || DragInputBlocked)
             {
+                pointerDragging = false;
                 return;
             }
 
