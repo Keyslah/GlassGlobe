@@ -16,7 +16,7 @@ namespace GlassGlobe
         public GlobeRenderer globe;
 
         [Range(0f, 3f)]
-        public float nightIntensity = 1.15f;
+        public float nightIntensity = 1.6f;
 
         [Range(0f, 3f)]
         public float rimIntensity = 0.9f;
@@ -72,6 +72,11 @@ namespace GlassGlobe
                 RimGlowStatus = "Globe shader does not support Earth styles";
                 return;
             }
+
+            // Seen from inside the glass Earth, the far-side surface is nearer
+            // to the camera than the weather shells above it (clouds 3004,
+            // radar 3006), so the globe draws last or its lights wash out.
+            material.renderQueue = 3008;
 
             bool nightWanted = GlassGlobeSettingsState.NightLightsEnabled;
             Texture2D texture = nightWanted ? ResolveNightTexture() : nightTexture;
