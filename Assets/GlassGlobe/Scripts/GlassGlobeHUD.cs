@@ -232,15 +232,19 @@ namespace GlassGlobe
             float correctionDegrees;
             if (poseSensors == null || !poseSensors.TryAlignCurrentHeadingToNorth(out correctionDegrees))
             {
-                alignmentStatusText = "North not set: hold phone upright and wait for sensors";
+                alignmentStatusText = poseSensors != null && !poseSensors.GameRotationAvailable
+                    ? "North not set: gyro-only sensor unavailable"
+                    : "North not set: hold phone upright and wait for gyro";
                 alignmentStatusUntil = Time.unscaledTime + 3f;
-                Debug.LogWarning("GlassGlobeHUD: Set North needs a live upright orientation.");
+                Debug.LogWarning("GlassGlobeHUD: Set North needs the live gyro-only orientation and an upright phone.");
                 return;
             }
 
-            alignmentStatusText = "North set: " + correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg";
+            alignmentStatusText = "North locked; compass ignored: " +
+                correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg";
             alignmentStatusUntil = Time.unscaledTime + 3f;
-            Debug.Log("GlassGlobeHUD: north aligned; correction=" + correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg");
+            Debug.Log("GlassGlobeHUD: gyro north locked; compass ignored; correction=" +
+                correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg");
         }
 
         public void SetPresetStraightDown()
@@ -724,7 +728,8 @@ namespace GlassGlobe
                 "Compass True: {0:0.0} deg   Correction: {1:0.0} deg   Offset: {2:0.0} deg",
                 poseSensors.CompassTrueHeadingDegrees,
                 poseSensors.CompassCorrectionDegrees,
-                poseSensors.headingOffsetDegrees);
+                poseSensors.ActiveHeadingCorrectionDegrees);
+            readout.Append("\nOrientation: ").Append(poseSensors.OrientationStatus);
             return readout.ToString();
         }
 

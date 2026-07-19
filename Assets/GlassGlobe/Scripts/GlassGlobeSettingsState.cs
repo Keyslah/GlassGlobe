@@ -29,10 +29,9 @@ namespace GlassGlobe
         private const string RimGlowKey = Prefix + "RimGlow";
         private const string WeatherCloudsKey = Prefix + "WeatherClouds";
         private const string WeatherRadarKey = Prefix + "WeatherRadar";
-        // V3 stores one fixed world-up yaw correction. Earlier test builds
-        // stored sensor-specific offsets that change meaning as the phone tilts.
-        private const string HeadingOffsetKey = Prefix + "HeadingOffsetV3";
-        private const string ManualHeadingCalibrationKey = Prefix + "ManualHeadingCalibrationV3";
+        private const string HeadingFineOffsetKey = Prefix + "HeadingFineOffsetV4";
+        private const string LegacyHeadingOffsetKey = Prefix + "HeadingOffsetV3";
+        private const string LegacyManualHeadingKey = Prefix + "ManualHeadingCalibrationV3";
 
         private static bool loaded;
 
@@ -54,8 +53,7 @@ namespace GlassGlobe
         public static bool RimGlowEnabled { get; private set; }
         public static bool WeatherCloudsEnabled { get; private set; }
         public static bool WeatherRadarEnabled { get; private set; }
-        public static float HeadingOffsetDegrees { get; private set; }
-        public static bool ManualHeadingCalibrationEnabled { get; private set; }
+        public static float HeadingFineOffsetDegrees { get; private set; }
 
         public static GeoCoordinate ViewpointCoordinate
         {
@@ -116,8 +114,7 @@ namespace GlassGlobe
             RimGlowEnabled = ReadBool(RimGlowKey, true);
             WeatherCloudsEnabled = ReadBool(WeatherCloudsKey, true);
             WeatherRadarEnabled = ReadBool(WeatherRadarKey, true);
-            HeadingOffsetDegrees = PlayerPrefs.GetFloat(HeadingOffsetKey, 0f);
-            ManualHeadingCalibrationEnabled = ReadBool(ManualHeadingCalibrationKey, false);
+            HeadingFineOffsetDegrees = ReadHeadingFineOffset();
             loaded = true;
         }
 
@@ -247,7 +244,7 @@ namespace GlassGlobe
             Save();
         }
 
-        public static void SetHeadingCalibration(float offsetDegrees, bool manualCalibrationEnabled)
+        public static void SetHeadingFineOffset(float offsetDegrees)
         {
             Load();
             if (float.IsNaN(offsetDegrees) || float.IsInfinity(offsetDegrees))
@@ -255,9 +252,23 @@ namespace GlassGlobe
                 return;
             }
 
-            HeadingOffsetDegrees = Mathf.Repeat(offsetDegrees + 180f, 360f) - 180f;
-            ManualHeadingCalibrationEnabled = manualCalibrationEnabled;
+            HeadingFineOffsetDegrees = Mathf.Repeat(offsetDegrees + 180f, 360f) - 180f;
             Save();
+        }
+
+        private static float ReadHeadingFineOffset()
+        {
+            if (PlayerPrefs.HasKey(HeadingFineOffsetKey))
+            {
+                return PlayerPrefs.GetFloat(HeadingFineOffsetKey, 0f);
+            }
+
+            // V3 mixed persistent fine adjustments with a north lock tied to a
+            // different sensor frame. Preserve only offsets that were not saved
+            // as a manual north calibration.
+            return ReadBool(LegacyManualHeadingKey, false)
+                ? 0f
+                : PlayerPrefs.GetFloat(LegacyHeadingOffsetKey, 0f);
         }
 
         private static bool ReadBool(string key, bool defaultValue)
@@ -285,8 +296,7 @@ namespace GlassGlobe
             PlayerPrefs.SetInt(RimGlowKey, RimGlowEnabled ? 1 : 0);
             PlayerPrefs.SetInt(WeatherCloudsKey, WeatherCloudsEnabled ? 1 : 0);
             PlayerPrefs.SetInt(WeatherRadarKey, WeatherRadarEnabled ? 1 : 0);
-            PlayerPrefs.SetFloat(HeadingOffsetKey, HeadingOffsetDegrees);
-            PlayerPrefs.SetInt(ManualHeadingCalibrationKey, ManualHeadingCalibrationEnabled ? 1 : 0);
+            PlayerPrefs.SetFloat(HeadingFineOffsetKey, HeadingFineOffsetDegrees);
             PlayerPrefs.Save();
         }
     }
