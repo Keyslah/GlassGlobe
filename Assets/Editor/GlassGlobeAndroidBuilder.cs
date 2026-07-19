@@ -34,6 +34,8 @@ public static class GlassGlobeAndroidBuilder
         PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
         PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
         PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
+        // The weather overlay streams satellite and radar imagery at runtime.
+        PlayerSettings.Android.forceInternetPermission = true;
         EditorUserBuildSettings.buildAppBundle = false;
 
         BuildPlayerOptions options = new BuildPlayerOptions
