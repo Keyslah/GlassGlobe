@@ -48,6 +48,9 @@ public static class GlassGlobeProjectBuilder
         globe.globeColor = new Color(0.01f, 0.08f, 0.10f, 0.06f);
         globe.RebuildGlobe();
 
+        EarthStyleController earthStyle = globeObject.AddComponent<EarthStyleController>();
+        earthStyle.globe = globe;
+
         GameObject gridRoot = new GameObject("Low Poly Earth Grid");
         gridRoot.transform.SetParent(root.transform, false);
         GlobeGridRenderer gridRenderer = gridRoot.AddComponent<GlobeGridRenderer>();

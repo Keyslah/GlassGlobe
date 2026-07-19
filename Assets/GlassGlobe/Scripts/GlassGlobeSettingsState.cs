@@ -25,6 +25,8 @@ namespace GlassGlobe
         private const string MilkyWayKey = Prefix + "MilkyWay";
         private const string SunKey = Prefix + "Sun";
         private const string MoonKey = Prefix + "Moon";
+        private const string NightLightsKey = Prefix + "NightLights";
+        private const string RimGlowKey = Prefix + "RimGlow";
         // V3 stores one fixed world-up yaw correction. Earlier test builds
         // stored sensor-specific offsets that change meaning as the phone tilts.
         private const string HeadingOffsetKey = Prefix + "HeadingOffsetV3";
@@ -46,6 +48,8 @@ namespace GlassGlobe
         public static bool MilkyWayEnabled { get; private set; }
         public static bool SunEnabled { get; private set; }
         public static bool MoonEnabled { get; private set; }
+        public static bool NightLightsEnabled { get; private set; }
+        public static bool RimGlowEnabled { get; private set; }
         public static float HeadingOffsetDegrees { get; private set; }
         public static bool ManualHeadingCalibrationEnabled { get; private set; }
 
@@ -104,6 +108,8 @@ namespace GlassGlobe
             MilkyWayEnabled = ReadBool(MilkyWayKey, true);
             SunEnabled = ReadBool(SunKey, true);
             MoonEnabled = ReadBool(MoonKey, true);
+            NightLightsEnabled = ReadBool(NightLightsKey, true);
+            RimGlowEnabled = ReadBool(RimGlowKey, true);
             HeadingOffsetDegrees = PlayerPrefs.GetFloat(HeadingOffsetKey, 0f);
             ManualHeadingCalibrationEnabled = ReadBool(ManualHeadingCalibrationKey, false);
             loaded = true;
@@ -207,6 +213,20 @@ namespace GlassGlobe
             Save();
         }
 
+        public static void SetNightLightsEnabled(bool value)
+        {
+            Load();
+            NightLightsEnabled = value;
+            Save();
+        }
+
+        public static void SetRimGlowEnabled(bool value)
+        {
+            Load();
+            RimGlowEnabled = value;
+            Save();
+        }
+
         public static void SetHeadingCalibration(float offsetDegrees, bool manualCalibrationEnabled)
         {
             Load();
@@ -241,6 +261,8 @@ namespace GlassGlobe
             PlayerPrefs.SetInt(MilkyWayKey, MilkyWayEnabled ? 1 : 0);
             PlayerPrefs.SetInt(SunKey, SunEnabled ? 1 : 0);
             PlayerPrefs.SetInt(MoonKey, MoonEnabled ? 1 : 0);
+            PlayerPrefs.SetInt(NightLightsKey, NightLightsEnabled ? 1 : 0);
+            PlayerPrefs.SetInt(RimGlowKey, RimGlowEnabled ? 1 : 0);
             PlayerPrefs.SetFloat(HeadingOffsetKey, HeadingOffsetDegrees);
             PlayerPrefs.SetInt(ManualHeadingCalibrationKey, ManualHeadingCalibrationEnabled ? 1 : 0);
             PlayerPrefs.Save();
