@@ -21,6 +21,7 @@ namespace GlassGlobe
         public CountryLabelController labelController;
         public MilkyWayBackground milkyWay;
         public SunMoonBackground sunMoon;
+        public EarthStyleController earthStyle;
 
         [Min(0.5f)]
         public float settingsButtonVisibleSeconds = 3f;
@@ -35,6 +36,7 @@ namespace GlassGlobe
             Camera,
             Viewpoint,
             Background,
+            EarthStyles,
             Orient,
             OrientCapture,
             Privacy
@@ -136,6 +138,10 @@ namespace GlassGlobe
         private bool appliedSunSetting;
         private bool moonSettingApplied;
         private bool appliedMoonSetting;
+        private bool nightLightsSettingApplied;
+        private bool appliedNightLightsSetting;
+        private bool rimGlowSettingApplied;
+        private bool appliedRimGlowSetting;
         private AlignBody alignTarget = AlignBody.Sun;
         private Texture2D alignRingTexture;
         private GUIStyle captureTextStyle;
@@ -355,6 +361,9 @@ namespace GlassGlobe
                 case SettingsPage.Background:
                     DrawBackgroundPage();
                     break;
+                case SettingsPage.EarthStyles:
+                    DrawEarthStylesPage();
+                    break;
                 case SettingsPage.Orient:
                     DrawOrientPage();
                     break;
@@ -381,6 +390,8 @@ namespace GlassGlobe
             DrawButton("Viewpoint", delegate { ShowPage(SettingsPage.Viewpoint); }, 58f);
             GUILayout.Space(8f);
             DrawButton("Background", delegate { ShowPage(SettingsPage.Background); }, 58f);
+            GUILayout.Space(8f);
+            DrawButton("Earth Styles", delegate { ShowPage(SettingsPage.EarthStyles); }, 58f);
             GUILayout.Space(8f);
             DrawButton("Orient", delegate { ShowPage(SettingsPage.Orient); }, 58f);
             GUILayout.Space(8f);
@@ -435,6 +446,31 @@ namespace GlassGlobe
             GUILayout.Label("Sun: " + sunStatus, statusStyle);
             string moonStatus = sunMoon != null ? sunMoon.MoonStatus : "Moon component not found";
             GUILayout.Label("Moon: " + moonStatus, statusStyle);
+        }
+
+        private void DrawEarthStylesPage()
+        {
+            DrawCategoryHeader("Earth Styles");
+            GUILayout.Space(18f);
+            GUILayout.Label("Globe appearance", headingStyle);
+            GUILayout.Label(
+                "Night Lights paints real city lights from NASA's Black Marble map onto the glass Earth. Rim Glow adds a soft halo around the Earth's edge so it reads as a glass sphere.",
+                bodyStyle);
+            GUILayout.Space(10f);
+            DrawCheckbox(
+                "Night Lights (city lights)",
+                GlassGlobeSettingsState.NightLightsEnabled,
+                delegate { SetNightLightsEnabled(!GlassGlobeSettingsState.NightLightsEnabled); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Rim Glow (glass edge)",
+                GlassGlobeSettingsState.RimGlowEnabled,
+                delegate { SetRimGlowEnabled(!GlassGlobeSettingsState.RimGlowEnabled); });
+            GUILayout.Space(12f);
+            string nightStatus = earthStyle != null ? earthStyle.NightLightsStatus : "Earth style component not found";
+            GUILayout.Label("Night Lights: " + nightStatus, statusStyle);
+            string rimStatus = earthStyle != null ? earthStyle.RimGlowStatus : "Earth style component not found";
+            GUILayout.Label("Rim Glow: " + rimStatus, statusStyle);
         }
 
         private void DrawOrientPage()
@@ -1129,6 +1165,20 @@ namespace GlassGlobe
             ApplySunMoonSettings();
         }
 
+        private void SetNightLightsEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetNightLightsEnabled(value);
+            nightLightsSettingApplied = false;
+            ApplyEarthStyleSettings();
+        }
+
+        private void SetRimGlowEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetRimGlowEnabled(value);
+            rimGlowSettingApplied = false;
+            ApplyEarthStyleSettings();
+        }
+
         private void SelectViewpoint(ViewpointChoice choice)
         {
             GlassGlobeSettingsState.SetViewpoint(choice.Coordinate, choice.Name);
@@ -1241,6 +1291,7 @@ namespace GlassGlobe
             ApplyCountryLabelSetting();
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
+            ApplyEarthStyleSettings();
             ApplyViewpointSetting(true);
         }
 
@@ -1250,6 +1301,7 @@ namespace GlassGlobe
             ApplyCountryLabelSetting();
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
+            ApplyEarthStyleSettings();
             ApplyViewpointSetting(false);
         }
 
@@ -1330,6 +1382,28 @@ namespace GlassGlobe
             milkyWay.SetVisible(desired);
             appliedMilkyWaySetting = desired;
             milkyWaySettingApplied = true;
+        }
+
+        private void ApplyEarthStyleSettings()
+        {
+            if (earthStyle == null)
+            {
+                return;
+            }
+
+            bool desiredNight = GlassGlobeSettingsState.NightLightsEnabled;
+            bool desiredRim = GlassGlobeSettingsState.RimGlowEnabled;
+            if (nightLightsSettingApplied && appliedNightLightsSetting == desiredNight &&
+                rimGlowSettingApplied && appliedRimGlowSetting == desiredRim)
+            {
+                return;
+            }
+
+            earthStyle.ApplySettings();
+            appliedNightLightsSetting = desiredNight;
+            nightLightsSettingApplied = true;
+            appliedRimGlowSetting = desiredRim;
+            rimGlowSettingApplied = true;
         }
 
         private void ApplyViewpointSetting(bool force)
@@ -1531,6 +1605,15 @@ namespace GlassGlobe
             if (sunMoon == null)
             {
                 sunMoon = FindFirstObjectByType<SunMoonBackground>();
+            }
+
+            if (earthStyle == null)
+            {
+                earthStyle = FindFirstObjectByType<EarthStyleController>();
+                if (earthStyle == null)
+                {
+                    earthStyle = EarthStyleController.EnsureInstance(FindFirstObjectByType<GlobeRenderer>());
+                }
             }
         }
 
