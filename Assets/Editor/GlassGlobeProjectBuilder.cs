@@ -213,6 +213,34 @@ public static class GlassGlobeProjectBuilder
             Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Weather shader not found at scene build time.");
         }
 
+        if (!GlassGlobeLandMaskBaker.EnsureBaked())
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: land mask could not be baked; Earth art will report it missing.");
+        }
+
+        GameObject earthArtObject = new GameObject("Earth Art Overlay");
+        earthArtObject.transform.SetParent(root.transform, false);
+        EarthArtOverlay earthArt = earthArtObject.AddComponent<EarthArtOverlay>();
+        earthArt.globe = globe;
+        earthArt.weatherOverlay = weather;
+
+        Shader earthArtShader = Shader.Find("GlassGlobe/Earth Art");
+        Shader artCloudShader = Shader.Find("GlassGlobe/Art Clouds");
+        if (earthArtShader != null && artCloudShader != null)
+        {
+            Material earthArtMaterial = new Material(earthArtShader);
+            earthArtMaterial.name = "GlassGlobe Earth Art";
+            earthArt.earthArtMaterial = earthArtMaterial;
+
+            Material artCloudMaterial = new Material(artCloudShader);
+            artCloudMaterial.name = "GlassGlobe Art Clouds";
+            earthArt.artCloudMaterial = artCloudMaterial;
+        }
+        else
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: Earth art shaders not found at scene build time.");
+        }
+
         GameObject borderRoot = new GameObject("Country Border Line Renderers");
         borderRoot.transform.SetParent(root.transform, false);
         CountryBorderRenderer borderRenderer = borderRoot.AddComponent<CountryBorderRenderer>();
