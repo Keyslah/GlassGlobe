@@ -15,6 +15,8 @@ namespace GlassGlobe
     public static class GlassGlobeLandMaskBaker
     {
         private const string OutputPath = "Assets/GlassGlobe/Resources/GlassGlobeLandMask.png";
+        private const string VersionPath = "Assets/GlassGlobe/Resources/GlassGlobeLandMaskVersion.txt";
+        private const string BakeVersion = "2";
         private const int Width = 2048;
         private const int Height = 1024;
 
@@ -26,7 +28,8 @@ namespace GlassGlobe
 
         public static bool EnsureBaked()
         {
-            if (File.Exists(OutputPath))
+            if (File.Exists(OutputPath) && File.Exists(VersionPath) &&
+                File.ReadAllText(VersionPath).Trim() == BakeVersion)
             {
                 return true;
             }
@@ -43,6 +46,47 @@ namespace GlassGlobe
                 return false;
             }
 
+            // The loader wraps longitude -180 to +180, which tears rings that
+            // were split along the dateline (Antarctica, Fiji, Russia). Unwrap
+            // each ring for longitude continuity before scanline filling, and
+            // fill columns modulo the map width so out-of-range crossings wrap
+            // instead of smearing across the map.
+            List<float[]> ringLats = new List<float[]>();
+            List<float[]> ringLons = new List<float[]>();
+            foreach (CountryBorderRenderer.GeoOutline outline in outlines)
+            {
+                List<GeoCoordinate> points = outline.points;
+                if (points == null || points.Count < 3)
+                {
+                    continue;
+                }
+
+                float[] lats = new float[points.Count];
+                float[] lons = new float[points.Count];
+                lats[0] = points[0].Latitude;
+                lons[0] = points[0].Longitude;
+                for (int index = 1; index < points.Count; index++)
+                {
+                    lats[index] = points[index].Latitude;
+                    float longitude = points[index].Longitude;
+                    float previous = lons[index - 1];
+                    while (longitude - previous > 180f)
+                    {
+                        longitude -= 360f;
+                    }
+
+                    while (previous - longitude > 180f)
+                    {
+                        longitude += 360f;
+                    }
+
+                    lons[index] = longitude;
+                }
+
+                ringLats.Add(lats);
+                ringLons.Add(lons);
+            }
+
             bool[] landRow = new bool[Width];
             byte[] mask = new byte[Width * Height];
             List<float> crossings = new List<float>(32);
@@ -53,28 +97,34 @@ namespace GlassGlobe
                 System.Array.Clear(landRow, 0, Width);
                 bool rowHasLand = false;
 
-                foreach (CountryBorderRenderer.GeoOutline outline in outlines)
+                for (int ringIndex = 0; ringIndex < ringLats.Count; ringIndex++)
                 {
-                    List<GeoCoordinate> points = outline.points;
-                    if (points == null || points.Count < 3)
-                    {
-                        continue;
-                    }
+                    float[] lats = ringLats[ringIndex];
+                    float[] lons = ringLons[ringIndex];
+                    int count = lats.Length;
 
                     crossings.Clear();
-                    for (int index = 0; index < points.Count; index++)
+                    for (int index = 0; index < count; index++)
                     {
-                        GeoCoordinate a = points[index];
-                        GeoCoordinate b = points[(index + 1) % points.Count];
-                        float latA = a.Latitude;
-                        float latB = b.Latitude;
+                        int nextIndex = (index + 1) % count;
+                        float latA = lats[index];
+                        float latB = lats[nextIndex];
                         if ((latA > latitude) == (latB > latitude))
                         {
                             continue;
                         }
 
+                        float lonA = lons[index];
+                        float lonB = lons[nextIndex];
+                        if (Mathf.Abs(lonB - lonA) > 180f)
+                        {
+                            // Closing edge of a ring whose unwrap drifted a full
+                            // turn; skipping it keeps parity sane.
+                            continue;
+                        }
+
                         float t = (latitude - latA) / (latB - latA);
-                        crossings.Add(a.Longitude + t * (b.Longitude - a.Longitude));
+                        crossings.Add(lonA + t * (lonB - lonA));
                     }
 
                     if (crossings.Count < 2)
@@ -85,13 +135,11 @@ namespace GlassGlobe
                     crossings.Sort();
                     for (int pair = 0; pair + 1 < crossings.Count; pair += 2)
                     {
-                        int startColumn = Mathf.Clamp(
-                            Mathf.RoundToInt((crossings[pair] + 180f) / 360f * Width), 0, Width);
-                        int endColumn = Mathf.Clamp(
-                            Mathf.RoundToInt((crossings[pair + 1] + 180f) / 360f * Width), 0, Width);
+                        int startColumn = Mathf.RoundToInt((crossings[pair] + 180f) / 360f * Width);
+                        int endColumn = Mathf.RoundToInt((crossings[pair + 1] + 180f) / 360f * Width);
                         for (int column = startColumn; column < endColumn; column++)
                         {
-                            landRow[column] = true;
+                            landRow[((column % Width) + Width) % Width] = true;
                             rowHasLand = true;
                         }
                     }
@@ -124,8 +172,10 @@ namespace GlassGlobe
             texture.Apply(false);
 
             File.WriteAllBytes(OutputPath, texture.EncodeToPNG());
+            File.WriteAllText(VersionPath, BakeVersion);
             Object.DestroyImmediate(texture);
             AssetDatabase.ImportAsset(OutputPath);
+            AssetDatabase.ImportAsset(VersionPath);
 
             TextureImporter importer = AssetImporter.GetAtPath(OutputPath) as TextureImporter;
             if (importer != null)
