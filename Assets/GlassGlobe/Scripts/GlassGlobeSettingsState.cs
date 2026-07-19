@@ -27,6 +27,12 @@ namespace GlassGlobe
         private const string MoonKey = Prefix + "Moon";
         private const string NightLightsKey = Prefix + "NightLights";
         private const string RimGlowKey = Prefix + "RimGlow";
+        private const string WaterArtKey = Prefix + "WaterArt";
+        private const string WaterArtOpacityKey = Prefix + "WaterArtOpacity";
+        private const string LandArtKey = Prefix + "LandArt";
+        private const string LandArtOpacityKey = Prefix + "LandArtOpacity";
+        private const string ArtCloudsKey = Prefix + "ArtClouds";
+        private const string ArtCloudsOpacityKey = Prefix + "ArtCloudsOpacity";
         private const string WeatherCloudsKey = Prefix + "WeatherClouds";
         private const string WeatherRadarKey = Prefix + "WeatherRadar";
         private const string HeadingFineOffsetKey = Prefix + "HeadingFineOffsetV4";
@@ -51,6 +57,12 @@ namespace GlassGlobe
         public static bool MoonEnabled { get; private set; }
         public static bool NightLightsEnabled { get; private set; }
         public static bool RimGlowEnabled { get; private set; }
+        public static bool WaterArtEnabled { get; private set; }
+        public static float WaterArtOpacity { get; private set; }
+        public static bool LandArtEnabled { get; private set; }
+        public static float LandArtOpacity { get; private set; }
+        public static bool ArtCloudsEnabled { get; private set; }
+        public static float ArtCloudsOpacity { get; private set; }
         public static bool WeatherCloudsEnabled { get; private set; }
         public static bool WeatherRadarEnabled { get; private set; }
         public static float HeadingFineOffsetDegrees { get; private set; }
@@ -112,6 +124,12 @@ namespace GlassGlobe
             MoonEnabled = ReadBool(MoonKey, true);
             NightLightsEnabled = ReadBool(NightLightsKey, true);
             RimGlowEnabled = ReadBool(RimGlowKey, true);
+            WaterArtEnabled = ReadBool(WaterArtKey, false);
+            WaterArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(WaterArtOpacityKey, 0.75f));
+            LandArtEnabled = ReadBool(LandArtKey, false);
+            LandArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(LandArtOpacityKey, 0.65f));
+            ArtCloudsEnabled = ReadBool(ArtCloudsKey, false);
+            ArtCloudsOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(ArtCloudsOpacityKey, 0.8f));
             WeatherCloudsEnabled = ReadBool(WeatherCloudsKey, true);
             WeatherRadarEnabled = ReadBool(WeatherRadarKey, true);
             HeadingFineOffsetDegrees = ReadHeadingFineOffset();
@@ -230,6 +248,48 @@ namespace GlassGlobe
             Save();
         }
 
+        public static void SetWaterArtEnabled(bool value)
+        {
+            Load();
+            WaterArtEnabled = value;
+            Save();
+        }
+
+        public static void SetWaterArtOpacity(float value)
+        {
+            Load();
+            WaterArtOpacity = Mathf.Clamp(value, 0.05f, 1f);
+            Save();
+        }
+
+        public static void SetLandArtEnabled(bool value)
+        {
+            Load();
+            LandArtEnabled = value;
+            Save();
+        }
+
+        public static void SetLandArtOpacity(float value)
+        {
+            Load();
+            LandArtOpacity = Mathf.Clamp(value, 0.05f, 1f);
+            Save();
+        }
+
+        public static void SetArtCloudsEnabled(bool value)
+        {
+            Load();
+            ArtCloudsEnabled = value;
+            Save();
+        }
+
+        public static void SetArtCloudsOpacity(float value)
+        {
+            Load();
+            ArtCloudsOpacity = Mathf.Clamp(value, 0.05f, 1f);
+            Save();
+        }
+
         public static void SetWeatherCloudsEnabled(bool value)
         {
             Load();
@@ -294,6 +354,12 @@ namespace GlassGlobe
             PlayerPrefs.SetInt(MoonKey, MoonEnabled ? 1 : 0);
             PlayerPrefs.SetInt(NightLightsKey, NightLightsEnabled ? 1 : 0);
             PlayerPrefs.SetInt(RimGlowKey, RimGlowEnabled ? 1 : 0);
+            PlayerPrefs.SetInt(WaterArtKey, WaterArtEnabled ? 1 : 0);
+            PlayerPrefs.SetFloat(WaterArtOpacityKey, WaterArtOpacity);
+            PlayerPrefs.SetInt(LandArtKey, LandArtEnabled ? 1 : 0);
+            PlayerPrefs.SetFloat(LandArtOpacityKey, LandArtOpacity);
+            PlayerPrefs.SetInt(ArtCloudsKey, ArtCloudsEnabled ? 1 : 0);
+            PlayerPrefs.SetFloat(ArtCloudsOpacityKey, ArtCloudsOpacity);
             PlayerPrefs.SetInt(WeatherCloudsKey, WeatherCloudsEnabled ? 1 : 0);
             PlayerPrefs.SetInt(WeatherRadarKey, WeatherRadarEnabled ? 1 : 0);
             PlayerPrefs.SetFloat(HeadingFineOffsetKey, HeadingFineOffsetDegrees);
