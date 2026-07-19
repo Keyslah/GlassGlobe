@@ -12,6 +12,8 @@ namespace GlassGlobe
     /// </summary>
     public sealed class GlassGlobeSettingsController : MonoBehaviour
     {
+        private const float MaxReliableSkyAlignmentAltitudeDegrees = 80f;
+
         public GlassGlobeHUD hud;
         public CameraFeedRenderer cameraFeed;
         public PhonePoseSensors poseSensors;
@@ -532,7 +534,7 @@ namespace GlassGlobe
             {
                 GUILayout.Label("Quick north alignment", headingStyle);
                 GUILayout.Label(
-                    "Hold the phone upright and aim the center dot toward true north, then tap the button.",
+                    "Hold the phone upright and aim the center dot toward true north, then tap the button. GlassGlobe will ignore the magnetic compass until you reset it or leave the app. Gyro north can slowly drift, so tap again when needed.",
                     bodyStyle);
                 GUILayout.Space(6f);
                 DrawButton("My Phone Is Facing North", AlignPhoneToNorth, 50f);
@@ -558,21 +560,38 @@ namespace GlassGlobe
                 ComputeBodyPosition(AlignBody.Moon, out moonAzimuth, out moonAltitude, out moonWorld);
 
                 DrawButton(
-                    sunAltitude > -1f ? "Align to Sun" : "Align to Sun (below horizon)",
+                    sunAltitude >= MaxReliableSkyAlignmentAltitudeDegrees
+                        ? "Align to Sun (too close overhead)"
+                        : sunAltitude > -1f
+                            ? "Align to Sun"
+                            : "Align to Sun (below horizon)",
                     delegate { StartAlignment(AlignBody.Sun); },
                     46f);
                 GUILayout.Space(8f);
                 DrawButton(
-                    moonAltitude > -1f ? "Align to Moon" : "Align to Moon (below horizon)",
+                    moonAltitude >= MaxReliableSkyAlignmentAltitudeDegrees
+                        ? "Align to Moon (too close overhead)"
+                        : moonAltitude > -1f
+                            ? "Align to Moon"
+                            : "Align to Moon (below horizon)",
                     delegate { StartAlignment(AlignBody.Moon); },
                     46f);
                 GUILayout.Space(8f);
                 DrawButton("Reset Heading Correction", ResetHeadingOffset, 42f);
+                if (!string.IsNullOrEmpty(orientStatusMessage))
+                {
+                    GUILayout.Space(6f);
+                    GUILayout.Label(orientStatusMessage, statusStyle);
+                }
+
                 GUILayout.Space(10f);
                 GUILayout.Label(
                     string.Format(
-                        "Current manual correction: {0:+0.0;-0.0;0.0} deg\nSun: azimuth {1:0} deg, altitude {2:0} deg\nMoon: azimuth {3:0} deg, altitude {4:0} deg",
-                        poseSensors.headingOffsetDegrees,
+                        "{0}\nCurrent manual correction: {1:+0.0;-0.0;0.0} deg\nSun: azimuth {2:0} deg, altitude {3:0} deg\nMoon: azimuth {4:0} deg, altitude {5:0} deg",
+                        poseSensors.GyroNorthLockActive
+                            ? "Gyro north lock: ON (compass ignored)"
+                            : "Gyro north lock: OFF (automatic compass)",
+                        poseSensors.ActiveHeadingCorrectionDegrees,
                         sunAzimuth,
                         sunAltitude,
                         moonAzimuth,
@@ -593,17 +612,34 @@ namespace GlassGlobe
             float correctionDegrees;
             if (!poseSensors.TryAlignCurrentHeadingToNorth(out correctionDegrees))
             {
-                orientStatusMessage = "Wait for the live orientation sensor, hold the phone upright toward north, then try again.";
+                orientStatusMessage = poseSensors.GameRotationAvailable
+                    ? "Wait for the gyro-only orientation sensor, hold the phone upright toward north, then try again."
+                    : "This phone's gyro-only orientation sensor is unavailable, so metal-resistant north lock cannot start.";
                 return;
             }
 
-            orientStatusMessage = string.Format(
-                "North aligned. Applied {0:+0.0;-0.0;0.0} deg correction.",
-                correctionDegrees);
+            orientStatusMessage =
+                "North locked with the magnetic compass ignored. Applied " +
+                correctionDegrees.ToString("+0.0;-0.0;0.0") +
+                " deg; set it again after leaving or reopening GlassGlobe.";
         }
 
         private void StartAlignment(AlignBody body)
         {
+            if (GlassGlobeSettingsState.ViewpointOverrideEnabled)
+            {
+                orientStatusMessage =
+                    "Sun and Moon alignment needs the sky at your real GPS location. Return to real GPS location first.";
+                return;
+            }
+
+            if (poseSensors == null || !poseSensors.HasLocationFix)
+            {
+                orientStatusMessage =
+                    "Wait for a real GPS fix before aligning to the Sun or Moon.";
+                return;
+            }
+
             float azimuth;
             float altitude;
             Vector3 world;
@@ -611,6 +647,13 @@ namespace GlassGlobe
             if (altitude <= -1f)
             {
                 orientStatusMessage = "The " + BodyName(body) + " is below the horizon right now. Try the other body.";
+                return;
+            }
+
+            if (altitude >= MaxReliableSkyAlignmentAltitudeDegrees)
+            {
+                orientStatusMessage =
+                    "The " + BodyName(body) + " is too close to overhead for reliable heading alignment. Use Set North or try again later.";
                 return;
             }
 
@@ -633,7 +676,8 @@ namespace GlassGlobe
             Vector3 targetWorld;
             ComputeBodyPosition(alignTarget, out azimuthTarget, out altitudeTarget, out targetWorld);
 
-            if (sceneCamera != null)
+            bool hasGyroHeading = poseSensors != null && poseSensors.GyroNorthLockActive;
+            if (hasGyroHeading && sceneCamera != null)
             {
                 Vector3 screenPoint = sceneCamera.WorldToScreenPoint(targetWorld);
                 if (screenPoint.z > 0f)
@@ -660,6 +704,11 @@ namespace GlassGlobe
             string tiltText = altitudeDelta >= 0f
                 ? string.Format("tilt up {0:0} deg", altitudeDelta)
                 : string.Format("tilt down {0:0} deg", -altitudeDelta);
+            string guidanceText = hasGyroHeading
+                ? string.Format("Guidance: {0}, {1}.", turnText, tiltText)
+                : string.Format(
+                    "{0}. Use the camera image; direction guidance stays off until Capture.",
+                    tiltText);
 
             captureTextStyle.fontSize = Mathf.RoundToInt(15f * uiScale);
             Rect safeArea = Screen.safeArea;
@@ -677,11 +726,10 @@ namespace GlassGlobe
             GUI.Label(
                 new Rect(instructionRect.x + 12f, instructionRect.y + 10f, instructionRect.width - 24f, instructionRect.height - 20f),
                 string.Format(
-                    "Center the dot on the real {0}, then tap Capture.\n{1}Guidance: {2}, {3}.",
+                    "Center the dot on the real {0}, then tap Capture.\n{1}{2}",
                     bodyName,
                     warning,
-                    turnText,
-                    tiltText),
+                    guidanceText),
                 captureTextStyle);
 
             if (!string.IsNullOrEmpty(orientStatusMessage))
@@ -731,32 +779,49 @@ namespace GlassGlobe
             float altitudeTarget;
             Vector3 targetWorld;
             ComputeBodyPosition(alignTarget, out azimuthTarget, out altitudeTarget, out targetWorld);
-            float azimuthForward;
-            float altitudeForward;
-            ComputeCameraPointing(out azimuthForward, out altitudeForward);
-
             if (altitudeTarget <= -1f)
             {
                 orientStatusMessage = "The " + BodyName(alignTarget) + " is below the horizon; cannot align.";
                 return;
             }
 
-            float altitudeDelta = altitudeTarget - altitudeForward;
-            if (Mathf.Abs(altitudeDelta) > 6f)
+            if (altitudeTarget >= MaxReliableSkyAlignmentAltitudeDegrees)
             {
-                orientStatusMessage = string.Format(
-                    "That does not look like the {0}: tilt is off by {1:0} deg. Center the dot on the {0} and tap Capture again.",
-                    BodyName(alignTarget),
-                    Mathf.Abs(altitudeDelta));
+                orientStatusMessage =
+                    "The " + BodyName(alignTarget) + " is too close to overhead for reliable heading alignment.";
                 return;
             }
 
-            float azimuthDelta = Mathf.DeltaAngle(azimuthForward, azimuthTarget);
-            poseSensors.NudgeHeading(azimuthDelta);
+            float azimuthCorrection;
+            float altitudeDelta;
+            if (!poseSensors.TryAlignCurrentViewToSkyTarget(
+                    azimuthTarget,
+                    altitudeTarget,
+                    6f,
+                    out azimuthCorrection,
+                    out altitudeDelta))
+            {
+                if (!float.IsNaN(altitudeDelta))
+                {
+                    orientStatusMessage = string.Format(
+                        "That does not look like the {0}: tilt is off by {1:0} deg. Center the dot on the {0} and tap Capture again.",
+                        BodyName(alignTarget),
+                        Mathf.Abs(altitudeDelta));
+                }
+                else
+                {
+                    orientStatusMessage = poseSensors.GameRotationAvailable
+                        ? "Wait for the gyro-only orientation sensor, center the dot on the " + BodyName(alignTarget) + ", then try again."
+                        : "This phone's gyro-only orientation sensor is unavailable, so metal-resistant sky alignment cannot start.";
+                }
+
+                return;
+            }
+
             orientStatusMessage = string.Format(
-                "Aligned to the {0}. Heading corrected by {1:+0.0;-0.0;0.0} deg.",
+                "Aligned to the {0}. Gyro north locked with the compass ignored; corrected by {1:+0.0;-0.0;0.0} deg.",
                 BodyName(alignTarget),
-                azimuthDelta);
+                azimuthCorrection);
             currentPage = SettingsPage.Orient;
         }
 
