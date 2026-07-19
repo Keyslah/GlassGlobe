@@ -25,6 +25,10 @@ namespace GlassGlobe
         private const string MilkyWayKey = Prefix + "MilkyWay";
         private const string SunKey = Prefix + "Sun";
         private const string MoonKey = Prefix + "Moon";
+        // V3 stores one fixed world-up yaw correction. Earlier test builds
+        // stored sensor-specific offsets that change meaning as the phone tilts.
+        private const string HeadingOffsetKey = Prefix + "HeadingOffsetV3";
+        private const string ManualHeadingCalibrationKey = Prefix + "ManualHeadingCalibrationV3";
 
         private static bool loaded;
 
@@ -42,6 +46,8 @@ namespace GlassGlobe
         public static bool MilkyWayEnabled { get; private set; }
         public static bool SunEnabled { get; private set; }
         public static bool MoonEnabled { get; private set; }
+        public static float HeadingOffsetDegrees { get; private set; }
+        public static bool ManualHeadingCalibrationEnabled { get; private set; }
 
         public static GeoCoordinate ViewpointCoordinate
         {
@@ -98,6 +104,8 @@ namespace GlassGlobe
             MilkyWayEnabled = ReadBool(MilkyWayKey, true);
             SunEnabled = ReadBool(SunKey, true);
             MoonEnabled = ReadBool(MoonKey, true);
+            HeadingOffsetDegrees = PlayerPrefs.GetFloat(HeadingOffsetKey, 0f);
+            ManualHeadingCalibrationEnabled = ReadBool(ManualHeadingCalibrationKey, false);
             loaded = true;
         }
 
@@ -199,6 +207,19 @@ namespace GlassGlobe
             Save();
         }
 
+        public static void SetHeadingCalibration(float offsetDegrees, bool manualCalibrationEnabled)
+        {
+            Load();
+            if (float.IsNaN(offsetDegrees) || float.IsInfinity(offsetDegrees))
+            {
+                return;
+            }
+
+            HeadingOffsetDegrees = Mathf.Repeat(offsetDegrees + 180f, 360f) - 180f;
+            ManualHeadingCalibrationEnabled = manualCalibrationEnabled;
+            Save();
+        }
+
         private static bool ReadBool(string key, bool defaultValue)
         {
             return PlayerPrefs.GetInt(key, defaultValue ? 1 : 0) != 0;
@@ -220,6 +241,8 @@ namespace GlassGlobe
             PlayerPrefs.SetInt(MilkyWayKey, MilkyWayEnabled ? 1 : 0);
             PlayerPrefs.SetInt(SunKey, SunEnabled ? 1 : 0);
             PlayerPrefs.SetInt(MoonKey, MoonEnabled ? 1 : 0);
+            PlayerPrefs.SetFloat(HeadingOffsetKey, HeadingOffsetDegrees);
+            PlayerPrefs.SetInt(ManualHeadingCalibrationKey, ManualHeadingCalibrationEnabled ? 1 : 0);
             PlayerPrefs.Save();
         }
     }

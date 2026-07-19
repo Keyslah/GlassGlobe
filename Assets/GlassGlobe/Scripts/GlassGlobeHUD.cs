@@ -29,9 +29,15 @@ namespace GlassGlobe
         private Rect nudgePlusOneTouchRect;
         private Rect nudgePlusFiveTouchRect;
         private Rect arToggleTouchRect;
+        private string alignmentStatusText = string.Empty;
+        private float alignmentStatusUntil;
         private Rect activePanelRect;
         private float activeUiScale = 1f;
         private TouchSlider activeTouchSlider;
+        private SensorTouchAction activeSensorTouchAction;
+        private int trackedTouchFingerId = -1;
+        private Vector2 touchStartScreenPoint;
+        private bool touchDragged;
 
         private enum TouchSlider
         {
@@ -41,9 +47,25 @@ namespace GlassGlobe
             Fov
         }
 
+        private enum SensorTouchAction
+        {
+            None,
+            SetNorth,
+            MinusFive,
+            MinusOne,
+            PlusOne,
+            PlusFive,
+            ToggleCamera
+        }
+
         private void Awake()
         {
             GlassGlobeSettingsState.Load();
+            if (Application.isMobilePlatform)
+            {
+                Input.simulateMouseWithTouches = true;
+            }
+
             settingsController = GlassGlobeSettingsController.EnsureInstance(this);
         }
 
@@ -70,9 +92,7 @@ namespace GlassGlobe
             EnsureStyles();
 
             Matrix4x4 previousMatrix = GUI.matrix;
-            float uiScale = Application.isMobilePlatform
-                ? Mathf.Clamp(Screen.width / 540f, 1f, 2f)
-                : 1f;
+            float uiScale = GetMobileUiScale();
             activeUiScale = uiScale;
             GUI.matrix = Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
 
@@ -152,37 +172,38 @@ namespace GlassGlobe
             DrawSlider("FOV", 20f, 75f, GetFov(), SetFov);
 
             GUILayout.Space(8f);
+            float sensorButtonHeight = Application.isMobilePlatform ? 48f : 30f;
             GUILayout.BeginHorizontal();
-            bool alignClicked = GUILayout.Button("Align", GUILayout.Height(30f));
-            alignTouchRect = ToScreenRect(GUILayoutUtility.GetLastRect());
+            bool alignClicked = GUILayout.Button("Set North", GUILayout.Height(sensorButtonHeight));
+            StoreButtonTouchRect(ref alignTouchRect);
             if (alignClicked && !Application.isMobilePlatform)
             {
-                poseSensors.SnapAlignToCompass();
+                AlignPhoneToNorth();
             }
 
-            bool minusFiveClicked = GUILayout.Button("-5", GUILayout.Height(30f));
-            nudgeMinusFiveTouchRect = ToScreenRect(GUILayoutUtility.GetLastRect());
+            bool minusFiveClicked = GUILayout.Button("-5", GUILayout.Height(sensorButtonHeight));
+            StoreButtonTouchRect(ref nudgeMinusFiveTouchRect);
             if (minusFiveClicked && !Application.isMobilePlatform)
             {
                 poseSensors.NudgeHeading(-5f);
             }
 
-            bool minusOneClicked = GUILayout.Button("-1", GUILayout.Height(30f));
-            nudgeMinusOneTouchRect = ToScreenRect(GUILayoutUtility.GetLastRect());
+            bool minusOneClicked = GUILayout.Button("-1", GUILayout.Height(sensorButtonHeight));
+            StoreButtonTouchRect(ref nudgeMinusOneTouchRect);
             if (minusOneClicked && !Application.isMobilePlatform)
             {
                 poseSensors.NudgeHeading(-1f);
             }
 
-            bool plusOneClicked = GUILayout.Button("+1", GUILayout.Height(30f));
-            nudgePlusOneTouchRect = ToScreenRect(GUILayoutUtility.GetLastRect());
+            bool plusOneClicked = GUILayout.Button("+1", GUILayout.Height(sensorButtonHeight));
+            StoreButtonTouchRect(ref nudgePlusOneTouchRect);
             if (plusOneClicked && !Application.isMobilePlatform)
             {
                 poseSensors.NudgeHeading(1f);
             }
 
-            bool plusFiveClicked = GUILayout.Button("+5", GUILayout.Height(30f));
-            nudgePlusFiveTouchRect = ToScreenRect(GUILayoutUtility.GetLastRect());
+            bool plusFiveClicked = GUILayout.Button("+5", GUILayout.Height(sensorButtonHeight));
+            StoreButtonTouchRect(ref nudgePlusFiveTouchRect);
             if (plusFiveClicked && !Application.isMobilePlatform)
             {
                 poseSensors.NudgeHeading(5f);
@@ -190,14 +211,36 @@ namespace GlassGlobe
 
             bool arClicked = GUILayout.Button(
                 GlassGlobeSettingsState.CameraFeedEnabled ? "AR On" : "AR Off",
-                GUILayout.Height(30f));
-            arToggleTouchRect = ToScreenRect(GUILayoutUtility.GetLastRect());
+                GUILayout.Height(sensorButtonHeight));
+            StoreButtonTouchRect(ref arToggleTouchRect);
             if (arClicked && !Application.isMobilePlatform)
             {
                 ToggleCameraFeed();
             }
 
             GUILayout.EndHorizontal();
+
+            if (Time.unscaledTime < alignmentStatusUntil && !string.IsNullOrEmpty(alignmentStatusText))
+            {
+                GUILayout.Space(4f);
+                GUILayout.Label(alignmentStatusText, readoutStyle);
+            }
+        }
+
+        private void AlignPhoneToNorth()
+        {
+            float correctionDegrees;
+            if (poseSensors == null || !poseSensors.TryAlignCurrentHeadingToNorth(out correctionDegrees))
+            {
+                alignmentStatusText = "North not set: hold phone upright and wait for sensors";
+                alignmentStatusUntil = Time.unscaledTime + 3f;
+                Debug.LogWarning("GlassGlobeHUD: Set North needs a live upright orientation.");
+                return;
+            }
+
+            alignmentStatusText = "North set: " + correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg";
+            alignmentStatusUntil = Time.unscaledTime + 3f;
+            Debug.Log("GlassGlobeHUD: north aligned; correction=" + correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg");
         }
 
         public void SetPresetStraightDown()
@@ -262,45 +305,14 @@ namespace GlassGlobe
 
             if (touch.phase == TouchPhase.Began)
             {
-                if (SensorModeActive())
-                {
-                    if (alignTouchRect.Contains(screenPoint))
-                    {
-                        poseSensors.SnapAlignToCompass();
-                        return;
-                    }
+                trackedTouchFingerId = touch.fingerId;
+                touchStartScreenPoint = screenPoint;
+                touchDragged = false;
+                activeSensorTouchAction = SensorModeActive()
+                    ? FindSensorTouchAction(screenPoint)
+                    : SensorTouchAction.None;
 
-                    if (nudgeMinusFiveTouchRect.Contains(screenPoint))
-                    {
-                        poseSensors.NudgeHeading(-5f);
-                        return;
-                    }
-
-                    if (nudgeMinusOneTouchRect.Contains(screenPoint))
-                    {
-                        poseSensors.NudgeHeading(-1f);
-                        return;
-                    }
-
-                    if (nudgePlusOneTouchRect.Contains(screenPoint))
-                    {
-                        poseSensors.NudgeHeading(1f);
-                        return;
-                    }
-
-                    if (nudgePlusFiveTouchRect.Contains(screenPoint))
-                    {
-                        poseSensors.NudgeHeading(5f);
-                        return;
-                    }
-
-                    if (arToggleTouchRect.Contains(screenPoint))
-                    {
-                        ToggleCameraFeed();
-                        return;
-                    }
-                }
-                else
+                if (!SensorModeActive())
                 {
                     if (straightDownTouchRect.Contains(screenPoint))
                     {
@@ -335,6 +347,17 @@ namespace GlassGlobe
                 }
             }
 
+            if (touch.fingerId != trackedTouchFingerId)
+            {
+                return;
+            }
+
+            float dragThreshold = 18f * Mathf.Max(1f, activeUiScale);
+            if ((screenPoint - touchStartScreenPoint).sqrMagnitude > dragThreshold * dragThreshold)
+            {
+                touchDragged = true;
+            }
+
             if (activeTouchSlider != TouchSlider.None &&
                 (touch.phase == TouchPhase.Began || touch.phase == TouchPhase.Moved || touch.phase == TouchPhase.Stationary))
             {
@@ -343,11 +366,84 @@ namespace GlassGlobe
 
             if (touch.phase == TouchPhase.Ended)
             {
-                activeTouchSlider = TouchSlider.None;
+                if (!touchDragged &&
+                    activeSensorTouchAction != SensorTouchAction.None &&
+                    GetSensorTouchRect(activeSensorTouchAction).Contains(screenPoint))
+                {
+                    ExecuteSensorTouchAction(activeSensorTouchAction);
+                }
+
+                ResetTrackedTouch();
             }
             else if (touch.phase == TouchPhase.Canceled)
             {
-                activeTouchSlider = TouchSlider.None;
+                ResetTrackedTouch();
+            }
+        }
+
+        private SensorTouchAction FindSensorTouchAction(Vector2 screenPoint)
+        {
+            if (alignTouchRect.Contains(screenPoint)) return SensorTouchAction.SetNorth;
+            if (nudgeMinusFiveTouchRect.Contains(screenPoint)) return SensorTouchAction.MinusFive;
+            if (nudgeMinusOneTouchRect.Contains(screenPoint)) return SensorTouchAction.MinusOne;
+            if (nudgePlusOneTouchRect.Contains(screenPoint)) return SensorTouchAction.PlusOne;
+            if (nudgePlusFiveTouchRect.Contains(screenPoint)) return SensorTouchAction.PlusFive;
+            if (arToggleTouchRect.Contains(screenPoint)) return SensorTouchAction.ToggleCamera;
+            return SensorTouchAction.None;
+        }
+
+        private Rect GetSensorTouchRect(SensorTouchAction action)
+        {
+            switch (action)
+            {
+                case SensorTouchAction.SetNorth: return alignTouchRect;
+                case SensorTouchAction.MinusFive: return nudgeMinusFiveTouchRect;
+                case SensorTouchAction.MinusOne: return nudgeMinusOneTouchRect;
+                case SensorTouchAction.PlusOne: return nudgePlusOneTouchRect;
+                case SensorTouchAction.PlusFive: return nudgePlusFiveTouchRect;
+                case SensorTouchAction.ToggleCamera: return arToggleTouchRect;
+                default: return Rect.zero;
+            }
+        }
+
+        private void ExecuteSensorTouchAction(SensorTouchAction action)
+        {
+            switch (action)
+            {
+                case SensorTouchAction.SetNorth:
+                    AlignPhoneToNorth();
+                    break;
+                case SensorTouchAction.MinusFive:
+                    poseSensors.NudgeHeading(-5f);
+                    break;
+                case SensorTouchAction.MinusOne:
+                    poseSensors.NudgeHeading(-1f);
+                    break;
+                case SensorTouchAction.PlusOne:
+                    poseSensors.NudgeHeading(1f);
+                    break;
+                case SensorTouchAction.PlusFive:
+                    poseSensors.NudgeHeading(5f);
+                    break;
+                case SensorTouchAction.ToggleCamera:
+                    ToggleCameraFeed();
+                    break;
+            }
+        }
+
+        private void ResetTrackedTouch()
+        {
+            trackedTouchFingerId = -1;
+            touchDragged = false;
+            activeTouchSlider = TouchSlider.None;
+            activeSensorTouchAction = SensorTouchAction.None;
+        }
+
+        private void StoreButtonTouchRect(ref Rect touchRect)
+        {
+            if (Event.current.type == EventType.Repaint)
+            {
+                touchRect = ToScreenRect(GUILayoutUtility.GetLastRect());
             }
         }
 
@@ -418,6 +514,22 @@ namespace GlassGlobe
                 (activePanelRect.y + localRect.y) * activeUiScale,
                 localRect.width * activeUiScale,
                 localRect.height * activeUiScale);
+        }
+
+        private static float GetMobileUiScale()
+        {
+            if (!Application.isMobilePlatform)
+            {
+                return 1f;
+            }
+
+            if (Screen.dpi > 0f)
+            {
+                return Mathf.Clamp(Screen.dpi / 160f, 1f, 4f);
+            }
+
+            float shortestSide = Mathf.Min(Screen.width, Screen.height);
+            return Mathf.Clamp(shortestSide / 360f, 1f, 4f);
         }
 
         private float GetTilt()
