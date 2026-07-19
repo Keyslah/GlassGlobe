@@ -140,6 +140,8 @@ namespace GlassGlobe
         private bool appliedSunSetting;
         private bool moonSettingApplied;
         private bool appliedMoonSetting;
+        private EarthArtOverlay earthArt;
+        private string appliedEarthArtSignature;
         private bool nightLightsSettingApplied;
         private bool appliedNightLightsSetting;
         private bool rimGlowSettingApplied;
@@ -482,6 +484,58 @@ namespace GlassGlobe
             GUILayout.Label("Night Lights: " + nightStatus, statusStyle);
             string rimStatus = earthStyle != null ? earthStyle.RimGlowStatus : "Earth style component not found";
             GUILayout.Label("Rim Glow: " + rimStatus, statusStyle);
+
+            GUILayout.Space(16f);
+            GUILayout.Label("Dreamy Earth art", headingStyle);
+            GUILayout.Label(
+                "Stylized shimmering water and soft drifting land colors on the far side, plus art clouds shaped by the live satellite cloud field that creep along so slowly you only catch the motion by staring.",
+                bodyStyle);
+            GUILayout.Space(10f);
+            DrawCheckbox(
+                "Shimmering water",
+                GlassGlobeSettingsState.WaterArtEnabled,
+                delegate { SetWaterArtEnabled(!GlassGlobeSettingsState.WaterArtEnabled); });
+            DrawOpacityRow(
+                "Water opacity",
+                GlassGlobeSettingsState.WaterArtOpacity,
+                delegate (float value) { GlassGlobeSettingsState.SetWaterArtOpacity(value); MarkEarthArtDirty(); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Dreamy land",
+                GlassGlobeSettingsState.LandArtEnabled,
+                delegate { SetLandArtEnabled(!GlassGlobeSettingsState.LandArtEnabled); });
+            DrawOpacityRow(
+                "Land opacity",
+                GlassGlobeSettingsState.LandArtOpacity,
+                delegate (float value) { GlassGlobeSettingsState.SetLandArtOpacity(value); MarkEarthArtDirty(); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Art clouds (slow drift)",
+                GlassGlobeSettingsState.ArtCloudsEnabled,
+                delegate { SetArtCloudsEnabled(!GlassGlobeSettingsState.ArtCloudsEnabled); });
+            DrawOpacityRow(
+                "Cloud opacity",
+                GlassGlobeSettingsState.ArtCloudsOpacity,
+                delegate (float value) { GlassGlobeSettingsState.SetArtCloudsOpacity(value); MarkEarthArtDirty(); });
+            GUILayout.Space(12f);
+            string earthArtStatus = earthArt != null ? earthArt.EarthArtStatus : "Earth art component not found";
+            GUILayout.Label("Earth art: " + earthArtStatus, statusStyle);
+            string artCloudsStatus = earthArt != null ? earthArt.ArtCloudsStatus : "Earth art component not found";
+            GUILayout.Label("Art clouds: " + artCloudsStatus, statusStyle);
+        }
+
+        private void DrawOpacityRow(string label, float value, System.Action<float> setter)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(
+                string.Format("{0}: {1:0}%", label, value * 100f),
+                bodyStyle,
+                GUILayout.Width(200f));
+            float capturedValue = value;
+            DrawButton("-", delegate { setter(capturedValue - 0.1f); }, 38f);
+            GUILayout.Space(6f);
+            DrawButton("+", delegate { setter(capturedValue + 0.1f); }, 38f);
+            GUILayout.EndHorizontal();
         }
 
         private void DrawWeatherPage()
@@ -1219,6 +1273,30 @@ namespace GlassGlobe
             ApplyEarthStyleSettings();
         }
 
+        private void SetWaterArtEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetWaterArtEnabled(value);
+            MarkEarthArtDirty();
+        }
+
+        private void SetLandArtEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetLandArtEnabled(value);
+            MarkEarthArtDirty();
+        }
+
+        private void SetArtCloudsEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetArtCloudsEnabled(value);
+            MarkEarthArtDirty();
+        }
+
+        private void MarkEarthArtDirty()
+        {
+            appliedEarthArtSignature = null;
+            ApplyEarthArtSettings();
+        }
+
         private void SetWeatherCloudsEnabled(bool value)
         {
             GlassGlobeSettingsState.SetWeatherCloudsEnabled(value);
@@ -1346,6 +1424,7 @@ namespace GlassGlobe
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
             ApplyEarthStyleSettings();
+            ApplyEarthArtSettings();
             ApplyWeatherSettings();
             ApplyViewpointSetting(true);
         }
@@ -1357,6 +1436,7 @@ namespace GlassGlobe
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
             ApplyEarthStyleSettings();
+            ApplyEarthArtSettings();
             ApplyWeatherSettings();
             ApplyViewpointSetting(false);
         }
@@ -1462,6 +1542,34 @@ namespace GlassGlobe
             milkyWay.SetVisible(desired);
             appliedMilkyWaySetting = desired;
             milkyWaySettingApplied = true;
+        }
+
+        private void ApplyEarthArtSettings()
+        {
+            if (earthArt == null)
+            {
+                return;
+            }
+
+            string signature = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "{0}:{1:0.00}:{2}:{3:0.00}:{4}:{5:0.00}",
+                GlassGlobeSettingsState.WaterArtEnabled,
+                GlassGlobeSettingsState.WaterArtOpacity,
+                GlassGlobeSettingsState.LandArtEnabled,
+                GlassGlobeSettingsState.LandArtOpacity,
+                GlassGlobeSettingsState.ArtCloudsEnabled,
+                GlassGlobeSettingsState.ArtCloudsOpacity);
+            if (signature == appliedEarthArtSignature)
+            {
+                return;
+            }
+
+            earthArt.SetWaterVisible(GlassGlobeSettingsState.WaterArtEnabled);
+            earthArt.SetLandVisible(GlassGlobeSettingsState.LandArtEnabled);
+            earthArt.SetArtCloudsVisible(GlassGlobeSettingsState.ArtCloudsEnabled);
+            earthArt.ApplyOpacities();
+            appliedEarthArtSignature = signature;
         }
 
         private void ApplyEarthStyleSettings()
@@ -1694,6 +1802,11 @@ namespace GlassGlobe
                 {
                     earthStyle = EarthStyleController.EnsureInstance(FindFirstObjectByType<GlobeRenderer>());
                 }
+            }
+
+            if (earthArt == null)
+            {
+                earthArt = FindFirstObjectByType<EarthArtOverlay>();
             }
 
             if (weather == null)

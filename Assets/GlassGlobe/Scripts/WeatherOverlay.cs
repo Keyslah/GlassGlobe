@@ -86,6 +86,16 @@ namespace GlassGlobe
         public string CloudsStatus { get; private set; }
         public string RadarStatus { get; private set; }
 
+        public Texture2D CloudTexture
+        {
+            get { return cloudTexture; }
+        }
+
+        public bool HasCloudData
+        {
+            get { return hasCloudData; }
+        }
+
         private const float MaxShellLatitude = 85f;
         private const float MaxMercatorLatitude = 85.0511f;
         private const int RadarTileSize = 512;
@@ -112,6 +122,7 @@ namespace GlassGlobe
         private Color32[] radarPixels;
         private bool hasCloudData;
         private bool hasRadarData;
+        private bool artCloudsWantData;
         private string lastRadarFramePath;
         private float nextCloudAttemptTime;
         private float nextRadarAttemptTime;
@@ -182,6 +193,19 @@ namespace GlassGlobe
             ApplyVisibility();
         }
 
+        /// <summary>
+        /// The art cloud layer feeds off the live cloud texture, so keep the
+        /// cloud data refreshing even while the satellite cloud layer is off.
+        /// </summary>
+        public void SetArtCloudsWantData(bool value)
+        {
+            artCloudsWantData = value;
+            if (value && !hasCloudData)
+            {
+                nextCloudAttemptTime = 0f;
+            }
+        }
+
         public void SetRadarVisible(bool value)
         {
             RadarVisible = value;
@@ -221,7 +245,7 @@ namespace GlassGlobe
             WaitForSecondsRealtime pollWait = new WaitForSecondsRealtime(1f);
             while (true)
             {
-                if (CloudsVisible && cloudTexture != null && Time.unscaledTime >= nextCloudAttemptTime)
+                if ((CloudsVisible || artCloudsWantData) && cloudTexture != null && Time.unscaledTime >= nextCloudAttemptTime)
                 {
                     yield return RefreshClouds();
                 }
