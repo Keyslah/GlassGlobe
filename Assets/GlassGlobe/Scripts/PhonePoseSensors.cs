@@ -33,7 +33,7 @@ namespace GlassGlobe
         [Range(0f, 1f)]
         public float attitudeSmoothing = 0.35f;
 
-        [Tooltip("Manual heading calibration added on top of the compass alignment, degrees.")]
+        [Tooltip("Fixed world-up yaw calibration, degrees.")]
         public float headingOffsetDegrees = 0f;
 
         [Tooltip("Seconds for the slow compass alignment filter.")]
@@ -54,6 +54,9 @@ namespace GlassGlobe
         private bool locationStartRequested;
         private bool locationPermissionRequested;
         private bool compassCorrectionInitialized;
+        private bool manualHeadingCalibrationEnabled;
+        private Quaternion currentDeviceInEnu = Quaternion.identity;
+        private bool hasCurrentDeviceInEnu;
         private Quaternion smoothedRotation = Quaternion.identity;
         private bool hasSmoothedRotation;
         private float lastLogTime;
@@ -62,6 +65,8 @@ namespace GlassGlobe
         {
             ResolveReferences();
             GlassGlobeSettingsState.Load();
+            headingOffsetDegrees = GlassGlobeSettingsState.HeadingOffsetDegrees;
+            manualHeadingCalibrationEnabled = GlassGlobeSettingsState.ManualHeadingCalibrationEnabled;
 
             SensorModeActive = Application.isMobilePlatform || useSensorsInEditor;
             LocationStatus = "Not started";
@@ -127,13 +132,81 @@ namespace GlassGlobe
 
         public void SnapAlignToCompass()
         {
-            compassCorrectionInitialized = false;
-            headingOffsetDegrees = 0f;
+            ResetHeadingCorrection();
         }
 
         public void NudgeHeading(float degrees)
         {
-            headingOffsetDegrees = Mathf.Repeat(headingOffsetDegrees + degrees + 180f, 360f) - 180f;
+            if (float.IsNaN(degrees) || float.IsInfinity(degrees))
+            {
+                return;
+            }
+
+            // A nudge adjusts whichever stable yaw reference is active.
+            ApplyHeadingCalibration(
+                headingOffsetDegrees + degrees,
+                manualHeadingCalibrationEnabled);
+        }
+
+        public bool TryAlignCurrentHeadingToNorth(out float correctionDegrees)
+        {
+            correctionDegrees = 0f;
+            if (!SensorModeActive || !HasAttitude || !hasSmoothedRotation || !hasCurrentDeviceInEnu)
+            {
+                return false;
+            }
+
+            // Set North is defined by the center of the upright viewport. A
+            // nearly vertical camera-forward vector has no usable azimuth, so
+            // require the phone to be held upright as the UI instructs.
+            Vector3 rawForward = currentDeviceInEnu * Vector3.forward;
+            Vector3 horizontalForward = new Vector3(rawForward.x, 0f, rawForward.z);
+            if (horizontalForward.sqrMagnitude < 0.5f)
+            {
+                return false;
+            }
+
+            float currentTotalCorrection = CompassCorrectionDegrees + headingOffsetDegrees;
+            Vector3 correctedForward =
+                Quaternion.AngleAxis(currentTotalCorrection, Vector3.up) * horizontalForward;
+            float correctedHeading = Mathf.Repeat(
+                Mathf.Atan2(correctedForward.x, correctedForward.z) * Mathf.Rad2Deg,
+                360f);
+            correctionDegrees = Mathf.DeltaAngle(correctedHeading, 0f);
+
+            // Save one constant yaw for the full rotation-vector pose. Pitch
+            // and roll can now change without rewriting the north calibration.
+            float fixedYawCorrection = NormalizeHeadingOffset(
+                currentTotalCorrection + correctionDegrees);
+            CompassCorrectionDegrees = 0f;
+            compassCorrectionInitialized = false;
+            ApplyHeadingCalibration(fixedYawCorrection, true);
+            return true;
+        }
+
+        public void ResetHeadingCorrection()
+        {
+            CompassCorrectionDegrees = 0f;
+            compassCorrectionInitialized = false;
+            ApplyHeadingCalibration(0f, false);
+        }
+
+        private void ApplyHeadingCalibration(float degrees, bool manualCalibrationEnabled)
+        {
+            if (float.IsNaN(degrees) || float.IsInfinity(degrees))
+            {
+                return;
+            }
+
+            headingOffsetDegrees = NormalizeHeadingOffset(degrees);
+            manualHeadingCalibrationEnabled = manualCalibrationEnabled;
+            GlassGlobeSettingsState.SetHeadingCalibration(headingOffsetDegrees, manualCalibrationEnabled);
+            hasSmoothedRotation = false;
+        }
+
+        private static float NormalizeHeadingOffset(float degrees)
+        {
+            return Mathf.Repeat(degrees + 180f, 360f) - 180f;
         }
 
         public void RefreshViewpoint()
@@ -239,6 +312,8 @@ namespace GlassGlobe
             }
 
             Quaternion deviceInEnu = Quaternion.Euler(90f, 0f, 0f) * new Quaternion(raw.x, raw.y, -raw.z, -raw.w);
+            currentDeviceInEnu = deviceInEnu;
+            hasCurrentDeviceInEnu = true;
 
             UpdateCompassCorrection(deviceInEnu);
 
@@ -271,9 +346,9 @@ namespace GlassGlobe
 
         private void UpdateCompassCorrection(Quaternion deviceInEnu)
         {
-            // Raw attitude heading in the sensor world. Use the camera forward
-            // when it is reasonably horizontal, otherwise the top-of-screen
-            // direction (phone pointing straight down at the ground).
+            // This scalar heading is a readout only. It must never drive pose
+            // correction because its reference axis changes between the
+            // camera-forward and screen-top directions as the phone pitches.
             Vector3 forward = deviceInEnu * Vector3.forward;
             Vector3 up = deviceInEnu * Vector3.up;
             Vector3 headingVector;
@@ -296,23 +371,27 @@ namespace GlassGlobe
             }
 
             AttitudeHeadingRawDegrees = Mathf.Repeat(Mathf.Atan2(headingVector.x, headingVector.z) * Mathf.Rad2Deg, 360f);
+            CompassTrueHeadingDegrees = Input.compass.trueHeading;
 
-            float compassTrue = Input.compass.trueHeading;
-            float compassMagnetic = Input.compass.magneticHeading;
-            bool compassValid = Input.compass.enabled &&
-                (compassTrue != 0f || compassMagnetic != 0f) &&
-                Input.compass.timestamp > 0d;
-            if (!compassValid)
+            if (manualHeadingCalibrationEnabled)
+            {
+                // The Android rotation-vector pose already contains a full 3D
+                // north reference. Manual mode keeps its saved yaw fixed rather
+                // than mixing in screen-top compass heading as pitch changes.
+                CompassCorrectionDegrees = 0f;
+                return;
+            }
+
+            float desiredCorrection;
+            if (!TryGetTrueNorthCorrection(out desiredCorrection))
             {
                 return;
             }
 
-            CompassTrueHeadingDegrees = compassTrue;
-
-            // The attitude sensor's yaw reference can be magnetic north or (on
-            // some devices) arbitrary. Steer a slow correction so that the
-            // attitude-derived heading agrees with the compass true heading.
-            float desiredCorrection = Mathf.DeltaAngle(AttitudeHeadingRawDegrees, compassTrue);
+            // Android's rotation-vector frame is already magnetic-north based.
+            // Only magnetic declination is needed for geographic true north.
+            // Both compass values use the same screen axis, so subtracting them
+            // cancels that axis without feeding pitch into camera yaw.
             if (!compassCorrectionInitialized)
             {
                 CompassCorrectionDegrees = desiredCorrection;
@@ -322,6 +401,33 @@ namespace GlassGlobe
 
             float lerpFactor = 1f - Mathf.Exp(-Time.deltaTime / Mathf.Max(1f, compassAlignSeconds));
             CompassCorrectionDegrees = Mathf.LerpAngle(CompassCorrectionDegrees, desiredCorrection, lerpFactor);
+        }
+
+        private static bool TryGetTrueNorthCorrection(out float correctionDegrees)
+        {
+            correctionDegrees = 0f;
+            if (!Input.compass.enabled || Input.compass.timestamp <= 0d)
+            {
+                return false;
+            }
+
+            float trueHeading = Input.compass.trueHeading;
+            float magneticHeading = Input.compass.magneticHeading;
+            if (float.IsNaN(trueHeading) || float.IsInfinity(trueHeading) ||
+                float.IsNaN(magneticHeading) || float.IsInfinity(magneticHeading))
+            {
+                return false;
+            }
+
+            // Unity only guarantees trueHeading after location starts. Until
+            // then, keep the rotation-vector's magnetic-north reference.
+            if (Input.location.status != LocationServiceStatus.Running)
+            {
+                return true;
+            }
+
+            correctionDegrees = Mathf.DeltaAngle(magneticHeading, trueHeading);
+            return true;
         }
 
         private void UpdateReadouts(EarthMath.LocalFrame frame)

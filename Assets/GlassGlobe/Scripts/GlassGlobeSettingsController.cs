@@ -443,7 +443,7 @@ namespace GlassGlobe
             GUILayout.Space(14f);
             GUILayout.Label("Align with the sky", headingStyle);
             GUILayout.Label(
-                "Point the center dot at the real Sun or Moon and capture to correct the compass heading. The camera turns on so you can see the sky. Never look directly at the Sun - watch the screen only.",
+                "You can set north directly, or use the real Sun or Moon for fine alignment.",
                 bodyStyle);
             GUILayout.Space(10f);
 
@@ -454,6 +454,24 @@ namespace GlassGlobe
             }
             else
             {
+                GUILayout.Label("Quick north alignment", headingStyle);
+                GUILayout.Label(
+                    "Hold the phone upright and aim the center dot toward true north, then tap the button.",
+                    bodyStyle);
+                GUILayout.Space(6f);
+                DrawButton("My Phone Is Facing North", AlignPhoneToNorth, 50f);
+                if (!string.IsNullOrEmpty(orientStatusMessage))
+                {
+                    GUILayout.Space(6f);
+                    GUILayout.Label(orientStatusMessage, statusStyle);
+                }
+                GUILayout.Space(16f);
+                GUILayout.Label("Fine alignment", headingStyle);
+                GUILayout.Label(
+                    "Point the center dot at the real Sun or Moon and capture. The camera turns on so you can see the sky. Never look directly at the Sun - watch the screen only.",
+                    bodyStyle);
+                GUILayout.Space(8f);
+
                 float sunAzimuth;
                 float sunAltitude;
                 Vector3 sunWorld;
@@ -486,11 +504,26 @@ namespace GlassGlobe
                     bodyStyle);
             }
 
-            if (!string.IsNullOrEmpty(orientStatusMessage))
+        }
+
+        private void AlignPhoneToNorth()
+        {
+            if (poseSensors == null)
             {
-                GUILayout.Space(8f);
-                GUILayout.Label(orientStatusMessage, statusStyle);
+                orientStatusMessage = "Sensors unavailable.";
+                return;
             }
+
+            float correctionDegrees;
+            if (!poseSensors.TryAlignCurrentHeadingToNorth(out correctionDegrees))
+            {
+                orientStatusMessage = "Wait for the live orientation sensor, hold the phone upright toward north, then try again.";
+                return;
+            }
+
+            orientStatusMessage = string.Format(
+                "North aligned. Applied {0:+0.0;-0.0;0.0} deg correction.",
+                correctionDegrees);
         }
 
         private void StartAlignment(AlignBody body)
@@ -660,8 +693,8 @@ namespace GlassGlobe
         {
             if (poseSensors != null)
             {
-                poseSensors.headingOffsetDegrees = 0f;
-                orientStatusMessage = "Manual heading correction reset to 0.";
+                poseSensors.ResetHeadingCorrection();
+                orientStatusMessage = "Manual heading correction reset; automatic compass alignment restored.";
             }
         }
 
