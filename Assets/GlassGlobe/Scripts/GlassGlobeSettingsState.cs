@@ -12,6 +12,14 @@ namespace GlassGlobe
         private const string Prefix = "GlassGlobe.Settings.";
 
         private const string CameraFeedKey = Prefix + "CameraFeed";
+        private const string MainHudKey = Prefix + "MainHud";
+        private const string CountryBannerKey = Prefix + "CountryBanner";
+        private const string CountryBannerTopKey = Prefix + "CountryBannerTop";
+        private const string CountryOutlineColorKey = Prefix + "CountryOutlineColor";
+        private const string GridColorKey = Prefix + "GridColor";
+        private const string GridVisibleKey = Prefix + "GridVisible";
+        private const string CountryOutlineThicknessKey = Prefix + "CountryOutlineThickness";
+        private const string GridThicknessKey = Prefix + "GridThickness";
         private const string HideUserCoordinatesKey = Prefix + "HideUserCoordinates";
         private const string HideFarSideCoordinatesKey = Prefix + "HideFarSideCoordinates";
         private const string HideLocationAccuracyKey = Prefix + "HideLocationAccuracy";
@@ -31,6 +39,8 @@ namespace GlassGlobe
         private const string WaterArtOpacityKey = Prefix + "WaterArtOpacity";
         private const string LandArtKey = Prefix + "LandArt";
         private const string LandArtOpacityKey = Prefix + "LandArtOpacity";
+        private const string OceanArtKey = Prefix + "OceanArt";
+        private const string OceanArtOpacityKey = Prefix + "OceanArtOpacity";
         private const string ArtCloudsKey = Prefix + "ArtClouds";
         private const string ArtCloudsOpacityKey = Prefix + "ArtCloudsOpacity";
         private const string WeatherCloudsKey = Prefix + "WeatherClouds";
@@ -42,6 +52,14 @@ namespace GlassGlobe
         private static bool loaded;
 
         public static bool CameraFeedEnabled { get; private set; }
+        public static bool MainHudVisible { get; private set; }
+        public static bool CountryBannerVisible { get; private set; }
+        public static bool CountryBannerAtTop { get; private set; }
+        public static Color CountryOutlineColor { get; private set; }
+        public static Color GridColor { get; private set; }
+        public static bool GridVisible { get; private set; }
+        public static float CountryOutlineThickness { get; private set; }
+        public static float GridThickness { get; private set; }
         public static bool HideUserCoordinates { get; private set; }
         public static bool HideFarSideCoordinates { get; private set; }
         public static bool HideLocationAccuracy { get; private set; }
@@ -61,6 +79,8 @@ namespace GlassGlobe
         public static float WaterArtOpacity { get; private set; }
         public static bool LandArtEnabled { get; private set; }
         public static float LandArtOpacity { get; private set; }
+        public static bool OceanArtEnabled { get; private set; }
+        public static float OceanArtOpacity { get; private set; }
         public static bool ArtCloudsEnabled { get; private set; }
         public static float ArtCloudsOpacity { get; private set; }
         public static bool WeatherCloudsEnabled { get; private set; }
@@ -109,6 +129,14 @@ namespace GlassGlobe
             }
 
             CameraFeedEnabled = ReadBool(CameraFeedKey, true);
+            MainHudVisible = ReadBool(MainHudKey, true);
+            CountryBannerVisible = ReadBool(CountryBannerKey, true);
+            CountryBannerAtTop = ReadBool(CountryBannerTopKey, true);
+            CountryOutlineColor = ReadColor(CountryOutlineColorKey, new Color(1f, 0.92f, 0.42f, 1f));
+            GridColor = ReadColor(GridColorKey, new Color(0.15f, 0.88f, 1f, 0.95f));
+            GridVisible = ReadBool(GridVisibleKey, true);
+            CountryOutlineThickness = Mathf.Clamp(PlayerPrefs.GetFloat(CountryOutlineThicknessKey, 1f), 0.25f, 3f);
+            GridThickness = Mathf.Clamp(PlayerPrefs.GetFloat(GridThicknessKey, 1f), 0.25f, 3f);
             HideUserCoordinates = ReadBool(HideUserCoordinatesKey, false);
             HideFarSideCoordinates = ReadBool(HideFarSideCoordinatesKey, false);
             HideLocationAccuracy = ReadBool(HideLocationAccuracyKey, false);
@@ -128,6 +156,8 @@ namespace GlassGlobe
             WaterArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(WaterArtOpacityKey, 0.75f));
             LandArtEnabled = ReadBool(LandArtKey, false);
             LandArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(LandArtOpacityKey, 0.65f));
+            OceanArtEnabled = ReadBool(OceanArtKey, false);
+            OceanArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(OceanArtOpacityKey, 0.85f));
             ArtCloudsEnabled = ReadBool(ArtCloudsKey, false);
             ArtCloudsOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(ArtCloudsOpacityKey, 0.8f));
             WeatherCloudsEnabled = ReadBool(WeatherCloudsKey, true);
@@ -140,6 +170,62 @@ namespace GlassGlobe
         {
             Load();
             CameraFeedEnabled = value;
+            Save();
+        }
+
+        public static void SetMainHudVisible(bool value)
+        {
+            Load();
+            MainHudVisible = value;
+            Save();
+        }
+
+        public static void SetCountryBannerVisible(bool value)
+        {
+            Load();
+            CountryBannerVisible = value;
+            Save();
+        }
+
+        public static void SetCountryBannerAtTop(bool value)
+        {
+            Load();
+            CountryBannerAtTop = value;
+            Save();
+        }
+
+        public static void SetCountryOutlineColor(Color value)
+        {
+            Load();
+            CountryOutlineColor = value;
+            Save();
+        }
+
+        public static void SetGridColor(Color value)
+        {
+            Load();
+            GridColor = value;
+            Save();
+        }
+
+        public static void SetGridVisible(bool value)
+        {
+            Load();
+            GridVisible = value;
+            Save();
+        }
+
+        public static void SetCountryOutlineThickness(float value)
+        {
+            Load();
+            CountryOutlineThickness = Mathf.Clamp(value, 0.25f, 3f);
+            Save();
+        }
+
+        public static void SetGridThickness(float value)
+        {
+            Load();
+            GridThickness = Mathf.Clamp(value, 0.25f, 3f);
             Save();
         }
 
@@ -276,6 +362,20 @@ namespace GlassGlobe
             Save();
         }
 
+        public static void SetOceanArtEnabled(bool value)
+        {
+            Load();
+            OceanArtEnabled = value;
+            Save();
+        }
+
+        public static void SetOceanArtOpacity(float value)
+        {
+            Load();
+            OceanArtOpacity = Mathf.Clamp(value, 0.05f, 1f);
+            Save();
+        }
+
         public static void SetArtCloudsEnabled(bool value)
         {
             Load();
@@ -336,9 +436,25 @@ namespace GlassGlobe
             return PlayerPrefs.GetInt(key, defaultValue ? 1 : 0) != 0;
         }
 
+        private static Color ReadColor(string key, Color defaultValue)
+        {
+            Color value;
+            return ColorUtility.TryParseHtmlString(PlayerPrefs.GetString(key, string.Empty), out value)
+                ? value
+                : defaultValue;
+        }
+
         private static void Save()
         {
             PlayerPrefs.SetInt(CameraFeedKey, CameraFeedEnabled ? 1 : 0);
+            PlayerPrefs.SetInt(MainHudKey, MainHudVisible ? 1 : 0);
+            PlayerPrefs.SetInt(CountryBannerKey, CountryBannerVisible ? 1 : 0);
+            PlayerPrefs.SetInt(CountryBannerTopKey, CountryBannerAtTop ? 1 : 0);
+            PlayerPrefs.SetString(CountryOutlineColorKey, "#" + ColorUtility.ToHtmlStringRGBA(CountryOutlineColor));
+            PlayerPrefs.SetString(GridColorKey, "#" + ColorUtility.ToHtmlStringRGBA(GridColor));
+            PlayerPrefs.SetInt(GridVisibleKey, GridVisible ? 1 : 0);
+            PlayerPrefs.SetFloat(CountryOutlineThicknessKey, CountryOutlineThickness);
+            PlayerPrefs.SetFloat(GridThicknessKey, GridThickness);
             PlayerPrefs.SetInt(HideUserCoordinatesKey, HideUserCoordinates ? 1 : 0);
             PlayerPrefs.SetInt(HideFarSideCoordinatesKey, HideFarSideCoordinates ? 1 : 0);
             PlayerPrefs.SetInt(HideLocationAccuracyKey, HideLocationAccuracy ? 1 : 0);
@@ -358,6 +474,8 @@ namespace GlassGlobe
             PlayerPrefs.SetFloat(WaterArtOpacityKey, WaterArtOpacity);
             PlayerPrefs.SetInt(LandArtKey, LandArtEnabled ? 1 : 0);
             PlayerPrefs.SetFloat(LandArtOpacityKey, LandArtOpacity);
+            PlayerPrefs.SetInt(OceanArtKey, OceanArtEnabled ? 1 : 0);
+            PlayerPrefs.SetFloat(OceanArtOpacityKey, OceanArtOpacity);
             PlayerPrefs.SetInt(ArtCloudsKey, ArtCloudsEnabled ? 1 : 0);
             PlayerPrefs.SetFloat(ArtCloudsOpacityKey, ArtCloudsOpacity);
             PlayerPrefs.SetInt(WeatherCloudsKey, WeatherCloudsEnabled ? 1 : 0);

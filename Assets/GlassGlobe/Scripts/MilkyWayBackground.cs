@@ -24,10 +24,10 @@ namespace GlassGlobe
         public float radiusUnits = 90f;
 
         [Range(8, 128)]
-        public int longitudeSegments = 64;
+        public int longitudeSegments = 128;
 
         [Range(4, 64)]
-        public int latitudeSegments = 32;
+        public int latitudeSegments = 64;
 
         public bool Visible { get; private set; }
         public string StatusText { get; private set; }
@@ -44,6 +44,11 @@ namespace GlassGlobe
             GlassGlobeSettingsState.Load();
             Visible = GlassGlobeSettingsState.MilkyWayEnabled;
             StatusText = "Initializing";
+            // The photographic panorama contains fine, curved dust lanes.
+            // Keep enough sphere tessellation that its equirectangular mapping
+            // does not turn those lanes into visibly straight-edged facets.
+            longitudeSegments = Mathf.Max(longitudeSegments, 128);
+            latitudeSegments = Mathf.Max(latitudeSegments, 64);
             ComputeGalacticBasis();
             BuildSphere();
             ApplyVisibility();

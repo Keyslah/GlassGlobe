@@ -25,6 +25,7 @@ namespace GlassGlobe
         public SunMoonBackground sunMoon;
         public EarthStyleController earthStyle;
         public WeatherOverlay weather;
+        public GlobeGridRenderer gridRenderer;
 
         [Min(0.5f)]
         public float settingsButtonVisibleSeconds = 3f;
@@ -39,6 +40,7 @@ namespace GlassGlobe
             Camera,
             Viewpoint,
             Background,
+            Display,
             EarthStyles,
             Weather,
             Orient,
@@ -136,6 +138,7 @@ namespace GlassGlobe
         private bool appliedCameraSetting;
         private bool labelsSettingApplied;
         private bool appliedLabelsSetting;
+        private string appliedDisplaySignature;
         private bool milkyWaySettingApplied;
         private bool appliedMilkyWaySetting;
         private bool sunSettingApplied;
@@ -371,6 +374,9 @@ namespace GlassGlobe
                 case SettingsPage.Background:
                     DrawBackgroundPage();
                     break;
+                case SettingsPage.Display:
+                    DrawDisplayPage();
+                    break;
                 case SettingsPage.EarthStyles:
                     DrawEarthStylesPage();
                     break;
@@ -403,6 +409,8 @@ namespace GlassGlobe
             DrawButton("Viewpoint", delegate { ShowPage(SettingsPage.Viewpoint); }, 58f);
             GUILayout.Space(8f);
             DrawButton("Background", delegate { ShowPage(SettingsPage.Background); }, 58f);
+            GUILayout.Space(8f);
+            DrawButton("Display", delegate { ShowPage(SettingsPage.Display); }, 58f);
             GUILayout.Space(8f);
             DrawButton("Earth Styles", delegate { ShowPage(SettingsPage.EarthStyles); }, 58f);
             GUILayout.Space(8f);
@@ -463,6 +471,106 @@ namespace GlassGlobe
             GUILayout.Label("Moon: " + moonStatus, statusStyle);
         }
 
+        private void DrawDisplayPage()
+        {
+            DrawCategoryHeader("Display");
+            GUILayout.Space(18f);
+            GUILayout.Label("On-screen information", headingStyle);
+            GUILayout.Space(8f);
+            DrawCheckbox(
+                "Main information and controls",
+                GlassGlobeSettingsState.MainHudVisible,
+                delegate { GlassGlobeSettingsState.SetMainHudVisible(!GlassGlobeSettingsState.MainHudVisible); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Country name",
+                GlassGlobeSettingsState.CountryBannerVisible,
+                delegate { GlassGlobeSettingsState.SetCountryBannerVisible(!GlassGlobeSettingsState.CountryBannerVisible); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Country name at top",
+                GlassGlobeSettingsState.CountryBannerAtTop,
+                delegate { GlassGlobeSettingsState.SetCountryBannerAtTop(!GlassGlobeSettingsState.CountryBannerAtTop); });
+            GUILayout.Label("Uncheck to place the country name at the bottom.", bodyStyle);
+
+            GUILayout.Space(18f);
+            GUILayout.Label("Country outline color", headingStyle);
+            DrawColorChoices(true);
+            DrawThicknessRow(
+                "Country line thickness",
+                GlassGlobeSettingsState.CountryOutlineThickness,
+                delegate (float value) { GlassGlobeSettingsState.SetCountryOutlineThickness(value); RefreshDisplaySettings(); });
+            GUILayout.Space(18f);
+            DrawCheckbox(
+                "Grid",
+                GlassGlobeSettingsState.GridVisible,
+                delegate { GlassGlobeSettingsState.SetGridVisible(!GlassGlobeSettingsState.GridVisible); RefreshDisplaySettings(); });
+            GUILayout.Space(8f);
+            GUILayout.Label("Grid color", headingStyle);
+            DrawColorChoices(false);
+            DrawThicknessRow(
+                "Grid thickness",
+                GlassGlobeSettingsState.GridThickness,
+                delegate (float value) { GlassGlobeSettingsState.SetGridThickness(value); RefreshDisplaySettings(); });
+        }
+
+        private void DrawThicknessRow(string label, float value, Action<float> setter)
+        {
+            GUILayout.Space(8f);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(label + ": " + Mathf.RoundToInt(value * 100f) + "%", bodyStyle, GUILayout.Width(260f));
+            DrawButton("-", delegate { setter(value - 0.25f); }, 46f);
+            GUILayout.Space(6f);
+            DrawButton("+", delegate { setter(value + 0.25f); }, 46f);
+            GUILayout.EndHorizontal();
+        }
+
+        private void RefreshDisplaySettings()
+        {
+            appliedDisplaySignature = string.Empty;
+            ApplyDisplaySettings();
+        }
+
+        private void DrawColorChoices(bool countryOutlines)
+        {
+            GUILayout.BeginHorizontal();
+            DrawColorChoice("Gold", new Color(1f, 0.82f, 0.22f, 1f), countryOutlines);
+            GUILayout.Space(5f);
+            DrawColorChoice("Cyan", new Color(0.15f, 0.88f, 1f, 0.95f), countryOutlines);
+            GUILayout.Space(5f);
+            DrawColorChoice("White", Color.white, countryOutlines);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(5f);
+            GUILayout.BeginHorizontal();
+            DrawColorChoice("Red", new Color(1f, 0.25f, 0.2f, 1f), countryOutlines);
+            GUILayout.Space(5f);
+            DrawColorChoice("Green", new Color(0.25f, 1f, 0.4f, 1f), countryOutlines);
+            GUILayout.Space(5f);
+            DrawColorChoice("Violet", new Color(0.72f, 0.42f, 1f, 1f), countryOutlines);
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawColorChoice(string name, Color color, bool countryOutlines)
+        {
+            Color previousBackground = GUI.backgroundColor;
+            GUI.backgroundColor = color;
+            DrawButton(name, delegate
+            {
+                if (countryOutlines)
+                {
+                    GlassGlobeSettingsState.SetCountryOutlineColor(color);
+                }
+                else
+                {
+                    GlassGlobeSettingsState.SetGridColor(color);
+                }
+
+                appliedDisplaySignature = string.Empty;
+                ApplyDisplaySettings();
+            }, 46f);
+            GUI.backgroundColor = previousBackground;
+        }
+
         private void DrawEarthStylesPage()
         {
             DrawCategoryHeader("Earth Styles");
@@ -512,6 +620,15 @@ namespace GlassGlobe
                 delegate (float value) { GlassGlobeSettingsState.SetLandArtOpacity(value); MarkEarthArtDirty(); });
             GUILayout.Space(6f);
             DrawCheckbox(
+                "Stylized ocean (glinting water)",
+                GlassGlobeSettingsState.OceanArtEnabled,
+                delegate { SetOceanArtEnabled(!GlassGlobeSettingsState.OceanArtEnabled); });
+            DrawOpacityRow(
+                "Ocean opacity",
+                GlassGlobeSettingsState.OceanArtOpacity,
+                delegate (float value) { GlassGlobeSettingsState.SetOceanArtOpacity(value); MarkEarthArtDirty(); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
                 "Art clouds (slow drift)",
                 GlassGlobeSettingsState.ArtCloudsEnabled,
                 delegate { SetArtCloudsEnabled(!GlassGlobeSettingsState.ArtCloudsEnabled); });
@@ -522,6 +639,8 @@ namespace GlassGlobe
             GUILayout.Space(12f);
             string earthArtStatus = earthArt != null ? earthArt.EarthArtStatus : "Earth art component not found";
             GUILayout.Label("Earth art: " + earthArtStatus, statusStyle);
+            string oceanStatus = earthArt != null ? earthArt.OceanStatus : "Earth art component not found";
+            GUILayout.Label("Stylized ocean: " + oceanStatus, statusStyle);
             string artCloudsStatus = earthArt != null ? earthArt.ArtCloudsStatus : "Earth art component not found";
             GUILayout.Label("Art clouds: " + artCloudsStatus, statusStyle);
         }
@@ -905,7 +1024,7 @@ namespace GlassGlobe
             float lst = SkyMath.ComputeLocalSiderealDegrees(coordinate.Longitude);
             Vector3 equatorial = body == AlignBody.Sun
                 ? SkyMath.SunEquatorialDirection()
-                : SkyMath.MoonEquatorialDirection();
+                : SkyMath.MoonTopocentricEquatorialDirection(lst, coordinate.Latitude);
             Vector3 enu = SkyMath.EquatorialToEnu(equatorial, lst, coordinate.Latitude);
             SkyMath.EnuToAzimuthAltitude(enu, out azimuthDegrees, out altitudeDegrees);
 
@@ -1350,6 +1469,12 @@ namespace GlassGlobe
             MarkEarthArtDirty();
         }
 
+        private void SetOceanArtEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetOceanArtEnabled(value);
+            MarkEarthArtDirty();
+        }
+
         private void SetArtCloudsEnabled(bool value)
         {
             GlassGlobeSettingsState.SetArtCloudsEnabled(value);
@@ -1486,6 +1611,7 @@ namespace GlassGlobe
             ResolveReferences();
             ApplyCameraSetting();
             ApplyCountryLabelSetting();
+            ApplyDisplaySettings();
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
             ApplyEarthStyleSettings();
@@ -1498,6 +1624,7 @@ namespace GlassGlobe
         {
             ApplyCameraSetting();
             ApplyCountryLabelSetting();
+            ApplyDisplaySettings();
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
             ApplyEarthStyleSettings();
@@ -1541,6 +1668,34 @@ namespace GlassGlobe
             labelController.RebuildLabels();
             appliedLabelsSetting = desired;
             labelsSettingApplied = true;
+        }
+
+        private void ApplyDisplaySettings()
+        {
+            string signature = ColorUtility.ToHtmlStringRGBA(GlassGlobeSettingsState.CountryOutlineColor) + ":" +
+                ColorUtility.ToHtmlStringRGBA(GlassGlobeSettingsState.GridColor) + ":" +
+                GlassGlobeSettingsState.GridVisible + ":" +
+                GlassGlobeSettingsState.CountryOutlineThickness.ToString("0.00", CultureInfo.InvariantCulture) + ":" +
+                GlassGlobeSettingsState.GridThickness.ToString("0.00", CultureInfo.InvariantCulture);
+            if (signature == appliedDisplaySignature)
+            {
+                return;
+            }
+
+            if (borderRenderer != null)
+            {
+                borderRenderer.SetCountryOutlineColor(GlassGlobeSettingsState.CountryOutlineColor);
+                borderRenderer.SetCountryOutlineThickness(GlassGlobeSettingsState.CountryOutlineThickness);
+            }
+
+            if (gridRenderer != null)
+            {
+                gridRenderer.SetGridColor(GlassGlobeSettingsState.GridColor);
+                gridRenderer.SetGridVisible(GlassGlobeSettingsState.GridVisible);
+                gridRenderer.SetGridThickness(GlassGlobeSettingsState.GridThickness);
+            }
+
+            appliedDisplaySignature = signature;
         }
 
         private void ApplySunMoonSettings()
@@ -1618,11 +1773,13 @@ namespace GlassGlobe
 
             string signature = string.Format(
                 System.Globalization.CultureInfo.InvariantCulture,
-                "{0}:{1:0.00}:{2}:{3:0.00}:{4}:{5:0.00}",
+                "{0}:{1:0.00}:{2}:{3:0.00}:{4}:{5:0.00}:{6}:{7:0.00}",
                 GlassGlobeSettingsState.WaterArtEnabled,
                 GlassGlobeSettingsState.WaterArtOpacity,
                 GlassGlobeSettingsState.LandArtEnabled,
                 GlassGlobeSettingsState.LandArtOpacity,
+                GlassGlobeSettingsState.OceanArtEnabled,
+                GlassGlobeSettingsState.OceanArtOpacity,
                 GlassGlobeSettingsState.ArtCloudsEnabled,
                 GlassGlobeSettingsState.ArtCloudsOpacity);
             if (signature == appliedEarthArtSignature)
@@ -1632,6 +1789,7 @@ namespace GlassGlobe
 
             earthArt.SetWaterVisible(GlassGlobeSettingsState.WaterArtEnabled);
             earthArt.SetLandVisible(GlassGlobeSettingsState.LandArtEnabled);
+            earthArt.SetOceanVisible(GlassGlobeSettingsState.OceanArtEnabled);
             earthArt.SetArtCloudsVisible(GlassGlobeSettingsState.ArtCloudsEnabled);
             earthArt.ApplyOpacities();
             appliedEarthArtSignature = signature;
@@ -1848,6 +2006,11 @@ namespace GlassGlobe
             if (labelController == null)
             {
                 labelController = FindFirstObjectByType<CountryLabelController>();
+            }
+
+            if (gridRenderer == null)
+            {
+                gridRenderer = FindFirstObjectByType<GlobeGridRenderer>();
             }
 
             if (milkyWay == null)

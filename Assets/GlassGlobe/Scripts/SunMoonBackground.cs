@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace GlassGlobe
@@ -39,7 +40,43 @@ namespace GlassGlobe
         private Transform moonTransform;
         private MeshRenderer sunRenderer;
         private MeshRenderer moonRenderer;
+        private readonly List<CelestialMarker> foregroundMarkers = new List<CelestialMarker>();
         private float lastLogTime;
+        private Vector3 lastCameraPosition;
+
+        private sealed class CelestialMarker
+        {
+            public string Name;
+            public Transform Transform;
+            public Vector3 EquatorialDirection;
+            public float AngularDegrees;
+            public bool IsPlanet;
+        }
+
+        private static readonly object[] BrightStarCatalog =
+        {
+            "Sirius", 101.2875f, -16.7161f,
+            "Canopus", 95.9879f, -52.6957f,
+            "Arcturus", 213.9153f, 19.1824f,
+            "Vega", 279.2347f, 38.7837f,
+            "Capella", 79.1723f, 45.9980f,
+            "Rigel", 78.6345f, -8.2016f,
+            "Procyon", 114.8255f, 5.2250f,
+            "Betelgeuse", 88.7929f, 7.4071f,
+            "Achernar", 24.4286f, -57.2368f,
+            "Hadar", 210.9559f, -60.3730f,
+            "Altair", 297.6958f, 8.8683f,
+            "Acrux", 186.6490f, -63.0991f,
+            "Aldebaran", 68.9800f, 16.5093f,
+            "Antares", 247.3519f, -26.4320f,
+            "Spica", 201.2983f, -11.1614f,
+            "Pollux", 116.3289f, 28.0262f,
+            "Fomalhaut", 344.4128f, -29.6222f,
+            "Deneb", 310.3579f, 45.2803f,
+            "Polaris", 37.9546f, 89.2641f
+        };
+
+        private static readonly string[] PlanetNames = { "Venus", "Mars", "Jupiter", "Saturn" };
 
         private void Awake()
         {
@@ -54,6 +91,7 @@ namespace GlassGlobe
 
             sunTransform = BuildSprite("Sun Sprite", sunMaterial, out sunRenderer);
             moonTransform = BuildSprite("Moon Sprite", moonMaterial, out moonRenderer);
+            BuildForegroundMarkers();
             ApplyVisibility();
         }
 
@@ -87,6 +125,7 @@ namespace GlassGlobe
             float lstDegrees = SkyMath.ComputeLocalSiderealDegrees(coordinate.Longitude);
             float latitude = coordinate.Latitude;
             Vector3 cameraPosition = camera.transform.position;
+            lastCameraPosition = cameraPosition;
 
             float sunAzimuth = 0f;
             float sunAltitude = 0f;
@@ -99,17 +138,19 @@ namespace GlassGlobe
                 PlaceSprite(sunTransform, sunEquatorial, lstDegrees, latitude, frame, cameraPosition, sunAngularDegrees);
                 SkyMath.EnuToAzimuthAltitude(
                     SkyMath.EquatorialToEnu(sunEquatorial, lstDegrees, latitude), out sunAzimuth, out sunAltitude);
-                SunStatus = string.Format("Visible. Azimuth {0:0} deg, altitude {1:0} deg", sunAzimuth, sunAltitude);
+                SunStatus = FormatBodyStatus(sunAzimuth, sunAltitude);
             }
 
             if (MoonVisible)
             {
-                Vector3 moonEquatorial = SkyMath.MoonEquatorialDirection();
+                Vector3 moonEquatorial = SkyMath.MoonTopocentricEquatorialDirection(lstDegrees, latitude);
                 PlaceSprite(moonTransform, moonEquatorial, lstDegrees, latitude, frame, cameraPosition, moonAngularDegrees);
                 SkyMath.EnuToAzimuthAltitude(
                     SkyMath.EquatorialToEnu(moonEquatorial, lstDegrees, latitude), out moonAzimuth, out moonAltitude);
-                MoonStatus = string.Format("Visible. Azimuth {0:0} deg, altitude {1:0} deg", moonAzimuth, moonAltitude);
+                MoonStatus = FormatBodyStatus(moonAzimuth, moonAltitude);
             }
+
+            UpdateForegroundMarkers(lstDegrees, latitude, frame, cameraPosition);
 
             if (Time.time - lastLogTime > 5f)
             {
@@ -120,6 +161,89 @@ namespace GlassGlobe
                     sunAltitude,
                     moonAzimuth,
                     moonAltitude));
+            }
+        }
+
+        private static string FormatBodyStatus(float azimuth, float altitude)
+        {
+            string placement = altitude < 0f ? "Visible through Earth" : "Visible above horizon";
+            return string.Format("{0}. Azimuth {1:0} deg, altitude {2:0} deg", placement, azimuth, altitude);
+        }
+
+        public bool TryGetPointedBody(Vector3 worldDirection, out string bodyName)
+        {
+            bodyName = null;
+            float closestAngle = float.MaxValue;
+            TrySelect("Sun", sunTransform, SunVisible, sunAngularDegrees, worldDirection, lastCameraPosition, ref closestAngle, ref bodyName);
+            TrySelect("Moon", moonTransform, MoonVisible, moonAngularDegrees, worldDirection, lastCameraPosition, ref closestAngle, ref bodyName);
+
+            for (int index = 0; index < foregroundMarkers.Count; index++)
+            {
+                CelestialMarker marker = foregroundMarkers[index];
+                TrySelect(marker.Name, marker.Transform, true, marker.AngularDegrees, worldDirection, lastCameraPosition, ref closestAngle, ref bodyName);
+            }
+
+            return bodyName != null;
+        }
+
+        private static void TrySelect(string name, Transform target, bool visible, float angularDegrees, Vector3 worldDirection, Vector3 cameraPosition, ref float closestAngle, ref string closestName)
+        {
+            if (!visible || target == null)
+            {
+                return;
+            }
+
+            Vector3 targetDirection = (target.position - cameraPosition).normalized;
+            float angle = Vector3.Angle(worldDirection, targetDirection);
+            float selectionRadius = Mathf.Max(2.25f, angularDegrees * 0.6f);
+            if (angle <= selectionRadius && angle < closestAngle)
+            {
+                closestAngle = angle;
+                closestName = name;
+            }
+        }
+
+        private void BuildForegroundMarkers()
+        {
+            for (int index = 0; index < BrightStarCatalog.Length; index += 3)
+            {
+                string starName = (string)BrightStarCatalog[index];
+                float ra = (float)BrightStarCatalog[index + 1];
+                float dec = (float)BrightStarCatalog[index + 2];
+                AddForegroundMarker(starName, SkyMath.RaDecToEquatorial(ra, dec), 1.15f, false);
+            }
+
+            for (int index = 0; index < PlanetNames.Length; index++)
+            {
+                AddForegroundMarker(PlanetNames[index], Vector3.forward, 1.8f, true);
+            }
+        }
+
+        private void AddForegroundMarker(string markerName, Vector3 equatorialDirection, float angularDegrees, bool isPlanet)
+        {
+            MeshRenderer markerRenderer;
+            Transform markerTransform = BuildSprite(markerName + " Marker", isPlanet ? moonMaterial : sunMaterial, out markerRenderer);
+            foregroundMarkers.Add(new CelestialMarker
+            {
+                Name = markerName,
+                Transform = markerTransform,
+                EquatorialDirection = equatorialDirection,
+                AngularDegrees = angularDegrees,
+                IsPlanet = isPlanet
+            });
+        }
+
+        private void UpdateForegroundMarkers(float lstDegrees, float latitude, EarthMath.LocalFrame frame, Vector3 cameraPosition)
+        {
+            for (int index = 0; index < foregroundMarkers.Count; index++)
+            {
+                CelestialMarker marker = foregroundMarkers[index];
+                if (marker.IsPlanet)
+                {
+                    marker.EquatorialDirection = SkyMath.PlanetEquatorialDirection(marker.Name);
+                }
+
+                PlaceSprite(marker.Transform, marker.EquatorialDirection, lstDegrees, latitude, frame, cameraPosition, marker.AngularDegrees);
             }
         }
 

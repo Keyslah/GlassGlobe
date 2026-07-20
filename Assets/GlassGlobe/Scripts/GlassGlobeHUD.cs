@@ -17,6 +17,7 @@ namespace GlassGlobe
         private GUIStyle titleStyle;
         private GUIStyle readoutStyle;
         private GUIStyle labelStyle;
+        private GUIStyle countryBannerStyle;
         private Rect tiltTouchRect;
         private Rect headingTouchRect;
         private Rect fovTouchRect;
@@ -72,7 +73,7 @@ namespace GlassGlobe
         private void Update()
         {
             ResolveReferences();
-            if (!showHud)
+            if (!showHud || !GlassGlobeSettingsState.MainHudVisible)
             {
                 activeTouchSlider = TouchSlider.None;
                 return;
@@ -98,20 +99,58 @@ namespace GlassGlobe
 
             Rect responsivePanel = panelRect;
             responsivePanel.width = Mathf.Min(panelRect.width, Screen.width / uiScale - panelRect.x * 2f);
+            float bannerHeight = Application.isMobilePlatform ? 72f : 56f;
+            if (GlassGlobeSettingsState.CountryBannerVisible && GlassGlobeSettingsState.CountryBannerAtTop)
+            {
+                responsivePanel.y += bannerHeight + 8f;
+            }
+
+            if (GlassGlobeSettingsState.CountryBannerVisible)
+            {
+                Rect bannerRect = new Rect(
+                    responsivePanel.x,
+                    GlassGlobeSettingsState.CountryBannerAtTop
+                        ? panelRect.y
+                        : Screen.height / uiScale - panelRect.y - bannerHeight,
+                    responsivePanel.width,
+                    bannerHeight);
+                GUI.Box(bannerRect, GetViewedCountryName(), countryBannerStyle);
+            }
+
             activePanelRect = responsivePanel;
-            GUILayout.BeginArea(responsivePanel, GUI.skin.box);
-
-            if (SensorModeActive())
+            if (GlassGlobeSettingsState.MainHudVisible)
             {
-                DrawSensorPanel();
-            }
-            else
-            {
-                DrawSimulatorPanel();
-            }
+                GUILayout.BeginArea(responsivePanel, GUI.skin.box);
 
-            GUILayout.EndArea();
+                if (SensorModeActive())
+                {
+                    DrawSensorPanel();
+                }
+                else
+                {
+                    DrawSimulatorPanel();
+                }
+
+                GUILayout.EndArea();
+            }
             GUI.matrix = previousMatrix;
+        }
+
+        private string GetViewedCountryName()
+        {
+            if (farSideRaycaster == null)
+            {
+                return "Unknown";
+            }
+
+            farSideRaycaster.UpdateRaycast();
+            if (!farSideRaycaster.HasIntersection || borderRenderer == null)
+            {
+                return "Unknown";
+            }
+
+            string name = borderRenderer.GetRegionForCoordinate(farSideRaycaster.FarSideCoordinate);
+            return name.StartsWith("Nearest: ") ? name.Substring(9) : name;
         }
 
         private bool SensorModeActive()
@@ -786,6 +825,13 @@ namespace GlassGlobe
             labelStyle = new GUIStyle(GUI.skin.label);
             labelStyle.fontSize = 13;
             labelStyle.normal.textColor = new Color(0.9f, 0.97f, 1f, 1f);
+
+            countryBannerStyle = new GUIStyle(GUI.skin.box);
+            countryBannerStyle.fontSize = Application.isMobilePlatform ? 30 : 24;
+            countryBannerStyle.fontStyle = FontStyle.Bold;
+            countryBannerStyle.alignment = TextAnchor.MiddleCenter;
+            countryBannerStyle.wordWrap = true;
+            countryBannerStyle.normal.textColor = new Color(0.92f, 0.98f, 1f, 1f);
         }
     }
 }

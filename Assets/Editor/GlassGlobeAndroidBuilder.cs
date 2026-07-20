@@ -29,8 +29,8 @@ public static class GlassGlobeAndroidBuilder
 
         PlayerSettings.productName = "GlassGlobe Preview";
         PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android, PackageName);
-        PlayerSettings.bundleVersion = "0.1.9";
-        PlayerSettings.Android.bundleVersionCode = 10;
+        PlayerSettings.bundleVersion = "0.2.0";
+        PlayerSettings.Android.bundleVersionCode = 11;
         PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
         PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
         PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
