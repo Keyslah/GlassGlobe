@@ -26,6 +26,10 @@ namespace GlassGlobe
         public float maxSegmentDegrees = 2f;
         public bool showCountryOutlines = true;
         public bool showContinentOutlines = true;
+        public bool overrideCountryOutlineColor;
+        public Color countryOutlineColor = new Color(1f, 0.92f, 0.42f, 1f);
+        [Range(0.25f, 3f)]
+        public float countryOutlineThickness = 1f;
         public List<GeoOutline> outlines = new List<GeoOutline>();
 
         public IList<GeoOutline> Outlines
@@ -118,14 +122,31 @@ namespace GlassGlobe
                 lineRenderer.useWorldSpace = true;
                 lineRenderer.positionCount = positions.Count;
                 lineRenderer.SetPositions(positions.ToArray());
-                lineRenderer.widthMultiplier = Mathf.Max(0.005f, outline.lineWidth);
+                float thickness = outline.isCountry ? countryOutlineThickness : 1f;
+                lineRenderer.widthMultiplier = Mathf.Max(0.005f, outline.lineWidth * thickness);
                 lineRenderer.numCornerVertices = 3;
                 lineRenderer.numCapVertices = outline.closed ? 0 : 3;
                 lineRenderer.loop = false;
                 lineRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 lineRenderer.receiveShadows = false;
-                lineRenderer.material = CreateDefaultBorderMaterial(outline.color);
+                Color lineColor = outline.isCountry && overrideCountryOutlineColor
+                    ? countryOutlineColor
+                    : outline.color;
+                lineRenderer.material = CreateDefaultBorderMaterial(lineColor);
             }
+        }
+
+        public void SetCountryOutlineColor(Color color)
+        {
+            countryOutlineColor = color;
+            overrideCountryOutlineColor = true;
+            RebuildBorders();
+        }
+
+        public void SetCountryOutlineThickness(float thickness)
+        {
+            countryOutlineThickness = Mathf.Clamp(thickness, 0.25f, 3f);
+            RebuildBorders();
         }
 
         public string GetRegionForCoordinate(GeoCoordinate coordinate)

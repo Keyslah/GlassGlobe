@@ -145,11 +145,13 @@ public static class GlassGlobeProjectBuilder
 
             const string galaxyTexturePath = "Assets/GlassGlobe/Textures/MilkyWayPanorama.jpg";
             TextureImporter galaxyImporter = AssetImporter.GetAtPath(galaxyTexturePath) as TextureImporter;
-            if (galaxyImporter != null && galaxyImporter.maxTextureSize < 8192)
+            if (galaxyImporter != null &&
+                (galaxyImporter.maxTextureSize < 8192 || galaxyImporter.npotScale != TextureImporterNPOTScale.None))
             {
                 galaxyImporter.maxTextureSize = 8192;
+                galaxyImporter.npotScale = TextureImporterNPOTScale.None;
                 galaxyImporter.SaveAndReimport();
-                Debug.Log("GlassGlobeProjectBuilder: raised Milky Way texture import cap to 8192 so the panorama keeps its native resolution.");
+                Debug.Log("GlassGlobeProjectBuilder: preserved the Milky Way panorama at its native 6000x3000 resolution.");
             }
 
             Texture2D galaxyTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(galaxyTexturePath);
@@ -239,6 +241,22 @@ public static class GlassGlobeProjectBuilder
         else
         {
             Debug.LogWarning("GlassGlobeProjectBuilder: Earth art shaders not found at scene build time.");
+        }
+
+        Shader oceanShader = Shader.Find("GlassGlobe/Stylized Ocean");
+        if (oceanShader != null)
+        {
+            // Creating the material here keeps the stylized ocean shader from
+            // being stripped from the player build. EarthArtOverlay.BuildLayers
+            // assigns the land mask and ripple normal at runtime and sets the
+            // cull/depth/render-queue state for the far-side shell.
+            Material oceanMaterial = new Material(oceanShader);
+            oceanMaterial.name = "GlassGlobe Stylized Ocean";
+            earthArt.oceanMaterial = oceanMaterial;
+        }
+        else
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Stylized Ocean shader not found at scene build time.");
         }
 
         GameObject borderRoot = new GameObject("Country Border Line Renderers");

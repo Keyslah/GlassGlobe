@@ -21,6 +21,9 @@ namespace GlassGlobe
 
         public float surfaceOffset = 0.045f;
         public float lineWidth = 0.018f;
+        public bool gridVisible = true;
+        [Range(0.25f, 3f)]
+        public float gridThickness = 1f;
 
         private void OnEnable()
         {
@@ -75,6 +78,60 @@ namespace GlassGlobe
             }
         }
 
+        public void SetGridColor(Color color)
+        {
+            gridColor = color;
+            if (gridMaterial == null)
+            {
+                gridMaterial = CountryBorderRenderer.CreateDefaultBorderMaterial(color);
+            }
+
+            if (gridMaterial.HasProperty("_Color"))
+            {
+                gridMaterial.SetColor("_Color", color);
+            }
+
+            if (gridMaterial.HasProperty("_BaseColor"))
+            {
+                gridMaterial.SetColor("_BaseColor", color);
+            }
+
+            for (int index = 0; index < transform.childCount; index++)
+            {
+                LineRenderer line = transform.GetChild(index).GetComponent<LineRenderer>();
+                if (line != null)
+                {
+                    line.sharedMaterial = gridMaterial;
+                }
+            }
+        }
+
+        public void SetGridVisible(bool visible)
+        {
+            gridVisible = visible;
+            for (int index = 0; index < transform.childCount; index++)
+            {
+                LineRenderer line = transform.GetChild(index).GetComponent<LineRenderer>();
+                if (line != null)
+                {
+                    line.enabled = visible;
+                }
+            }
+        }
+
+        public void SetGridThickness(float thickness)
+        {
+            gridThickness = Mathf.Clamp(thickness, 0.25f, 3f);
+            for (int index = 0; index < transform.childCount; index++)
+            {
+                LineRenderer line = transform.GetChild(index).GetComponent<LineRenderer>();
+                if (line != null)
+                {
+                    line.widthMultiplier = lineWidth * gridThickness;
+                }
+            }
+        }
+
         private void CreateLine(string lineName, Vector3[] points, bool loop)
         {
             GameObject lineObject = new GameObject(lineName);
@@ -84,7 +141,8 @@ namespace GlassGlobe
             line.positionCount = points.Length;
             line.SetPositions(points);
             line.loop = loop;
-            line.widthMultiplier = lineWidth;
+            line.widthMultiplier = lineWidth * gridThickness;
+            line.enabled = gridVisible;
             line.numCornerVertices = 2;
             line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             line.receiveShadows = false;

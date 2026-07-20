@@ -83,6 +83,42 @@ namespace GlassGlobe
         }
 
         /// <summary>
+        /// Lightweight geocentric planet direction. Circular J2000 orbits are
+        /// deliberately used here: the foreground dots are guides, not an
+        /// observatory ephemeris, while still moving believably through the sky.
+        /// </summary>
+        public static Vector3 PlanetEquatorialDirection(string planetName)
+        {
+            double days = DaysSinceJ2000();
+            Orbit earth = new Orbit(1.0000, 365.256, 100.464, 0.0, 0.0);
+            Orbit planet;
+
+            switch (planetName)
+            {
+                case "Venus":
+                    planet = new Orbit(0.7233, 224.701, 181.979, 3.395, 76.680);
+                    break;
+                case "Mars":
+                    planet = new Orbit(1.5237, 686.980, 355.433, 1.850, 49.558);
+                    break;
+                case "Jupiter":
+                    planet = new Orbit(5.2028, 4332.589, 34.351, 1.303, 100.464);
+                    break;
+                case "Saturn":
+                    planet = new Orbit(9.5388, 10759.22, 50.077, 2.489, 113.665);
+                    break;
+                default:
+                    return Vector3.forward;
+            }
+
+            Vector3 heliocentricEarth = OrbitPosition(earth, days);
+            Vector3 heliocentricPlanet = OrbitPosition(planet, days);
+            Vector3 geocentric = (heliocentricPlanet - heliocentricEarth).normalized;
+            double obliquity = (23.439 - 0.0000004 * days) * DegToRad;
+            return EclipticVectorToEquatorial(geocentric, obliquity);
+        }
+
+        /// <summary>
         /// Geocentric Moon direction in the equatorial frame, accurate to a
         /// few tenths of a degree (topocentric parallax up to ~1 deg ignored).
         /// </summary>
@@ -107,6 +143,31 @@ namespace GlassGlobe
             return EclipticToEquatorial(WrapDegrees(lambda) * DegToRad, beta * DegToRad, obliquity);
         }
 
+        /// <summary>
+        /// Observer-corrected Moon direction. The Moon is close enough that
+        /// geocentric placement can miss by nearly a degree near the horizon.
+        /// </summary>
+        public static Vector3 MoonTopocentricEquatorialDirection(float lstDegrees, float latitudeDegrees)
+        {
+            Vector3 geocentricDirection = MoonEquatorialDirection();
+            double days = DaysSinceJ2000();
+            double lunarAnomaly = (134.963 + 13.064993 * days) * DegToRad;
+            double elongation = (297.850 + 12.190749 * days) * DegToRad;
+            double distanceEarthRadii = 60.36298
+                - 3.27746 * Math.Cos(lunarAnomaly)
+                - 0.57994 * Math.Cos(2.0 * elongation - lunarAnomaly)
+                - 0.46357 * Math.Cos(2.0 * elongation);
+
+            double lst = lstDegrees * DegToRad;
+            double latitude = latitudeDegrees * DegToRad;
+            Vector3 observerFromEarthCenter = new Vector3(
+                (float)(Math.Cos(latitude) * Math.Cos(lst)),
+                (float)(Math.Cos(latitude) * Math.Sin(lst)),
+                (float)Math.Sin(latitude));
+
+            return (geocentricDirection * (float)distanceEarthRadii - observerFromEarthCenter).normalized;
+        }
+
         private static Vector3 EclipticToEquatorial(double lambdaRadians, double betaRadians, double obliquityRadians)
         {
             double sinLambda = Math.Sin(lambdaRadians);
@@ -122,6 +183,53 @@ namespace GlassGlobe
 
             Vector3 direction = new Vector3((float)x, (float)y, (float)z);
             return direction.normalized;
+        }
+
+        private struct Orbit
+        {
+            public readonly double Radius;
+            public readonly double PeriodDays;
+            public readonly double LongitudeAtJ2000;
+            public readonly double Inclination;
+            public readonly double AscendingNode;
+
+            public Orbit(double radius, double periodDays, double longitudeAtJ2000, double inclination, double ascendingNode)
+            {
+                Radius = radius;
+                PeriodDays = periodDays;
+                LongitudeAtJ2000 = longitudeAtJ2000;
+                Inclination = inclination;
+                AscendingNode = ascendingNode;
+            }
+        }
+
+        private static Vector3 OrbitPosition(Orbit orbit, double days)
+        {
+            double longitude = (orbit.LongitudeAtJ2000 + 360.0 * days / orbit.PeriodDays) * DegToRad;
+            double node = orbit.AscendingNode * DegToRad;
+            double inclination = orbit.Inclination * DegToRad;
+            double argument = longitude - node;
+            double cosArgument = Math.Cos(argument);
+            double sinArgument = Math.Sin(argument);
+            double cosNode = Math.Cos(node);
+            double sinNode = Math.Sin(node);
+            double cosInclination = Math.Cos(inclination);
+            double sinInclination = Math.Sin(inclination);
+
+            return new Vector3(
+                (float)(orbit.Radius * (cosNode * cosArgument - sinNode * sinArgument * cosInclination)),
+                (float)(orbit.Radius * (sinNode * cosArgument + cosNode * sinArgument * cosInclination)),
+                (float)(orbit.Radius * sinArgument * sinInclination));
+        }
+
+        private static Vector3 EclipticVectorToEquatorial(Vector3 ecliptic, double obliquityRadians)
+        {
+            double cosEps = Math.Cos(obliquityRadians);
+            double sinEps = Math.Sin(obliquityRadians);
+            return new Vector3(
+                ecliptic.x,
+                (float)(ecliptic.y * cosEps - ecliptic.z * sinEps),
+                (float)(ecliptic.y * sinEps + ecliptic.z * cosEps)).normalized;
         }
 
         private const double DegToRad = Math.PI / 180.0;
