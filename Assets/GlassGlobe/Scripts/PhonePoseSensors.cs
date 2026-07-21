@@ -39,6 +39,9 @@ namespace GlassGlobe
         [Tooltip("Seconds for the slow compass alignment filter.")]
         public float compassAlignSeconds = 15f;
 
+        [Tooltip("Log sensor state (including GPS coordinates) to the system log once per second. Keep off for privacy outside debugging sessions.")]
+        public bool verboseLogging = false;
+
         public bool SensorModeActive { get; private set; }
         public bool HasLocationFix { get; private set; }
         public GeoCoordinate CurrentCoordinate { get; private set; }
@@ -71,6 +74,9 @@ namespace GlassGlobe
         private Quaternion smoothedRotation = Quaternion.identity;
         private bool hasSmoothedRotation;
         private float lastLogTime;
+        private float nextLocationRestartTime;
+        private MilkyWayBackground milkyWayBackground;
+        private SunMoonBackground sunMoonBackground;
 
         private void Awake()
         {
@@ -134,7 +140,7 @@ namespace GlassGlobe
             UpdateLocation();
             UpdateAttitudeAndPose();
 
-            if (Time.time - lastLogTime > 1f)
+            if (verboseLogging && Time.time - lastLogTime > 1f)
             {
                 lastLogTime = Time.time;
                 Debug.Log(string.Format(
@@ -375,6 +381,11 @@ namespace GlassGlobe
                     return;
                 }
 
+                if (Time.unscaledTime < nextLocationRestartTime)
+                {
+                    return;
+                }
+
                 Input.location.Start(3f, 1f);
                 locationStartRequested = true;
                 LocationStatus = "Acquiring GPS fix...";
@@ -394,12 +405,23 @@ namespace GlassGlobe
                     LocationStatus = "Acquiring GPS fix...";
                     break;
                 case LocationServiceStatus.Failed:
-                    LocationStatus = "GPS failed (using fallback location)";
+                    LocationStatus = "GPS failed; retrying shortly";
+                    ScheduleLocationRestart();
                     break;
                 default:
-                    LocationStatus = "GPS stopped";
+                    // The OS can stop the service (e.g. while backgrounded);
+                    // schedule a restart instead of staying dead until relaunch.
+                    LocationStatus = "GPS stopped; restarting shortly";
+                    ScheduleLocationRestart();
                     break;
             }
+        }
+
+        private void ScheduleLocationRestart()
+        {
+            Input.location.Stop();
+            locationStartRequested = false;
+            nextLocationRestartTime = Time.unscaledTime + 15f;
         }
 
         private void RequestLocationPermissionIfNeeded()
@@ -491,8 +513,11 @@ namespace GlassGlobe
             transform.SetPositionAndRotation(observerPosition, smoothedRotation);
             targetCamera.transform.SetPositionAndRotation(observerPosition, smoothedRotation);
             targetCamera.fieldOfView = cameraFovDegrees;
-            targetCamera.nearClipPlane = CalculateThroughEarthNearClip(observerPosition, smoothedRotation * Vector3.forward);
-            targetCamera.farClipPlane = Mathf.Max(targetCamera.farClipPlane, globe.RadiusUnits * 8f);
+            targetCamera.nearClipPlane = EarthMath.CalculateThroughEarthNearClip(
+                observerPosition, smoothedRotation * Vector3.forward, globe.Center, globe.RadiusUnits);
+            targetCamera.farClipPlane = Mathf.Max(
+                targetCamera.farClipPlane,
+                EarthMath.CalculateSkyFarClip(globe.RadiusUnits, MaxSkyRadius()));
 
             UpdateReadouts(frame);
             UpdateDebugVisuals(frame, observerPosition);
@@ -618,19 +643,20 @@ namespace GlassGlobe
             TiltDegrees = Vector3.Angle(frame.Down, forward);
         }
 
-        private float CalculateThroughEarthNearClip(Vector3 observerPosition, Vector3 viewDirection)
+        private float MaxSkyRadius()
         {
-            float nearDistance;
-            float farDistance;
-            Ray viewRay = new Ray(observerPosition, viewDirection);
-            if (!EarthMath.RaySphereIntersections(viewRay, globe.Center, globe.RadiusUnits, out nearDistance, out farDistance))
+            float maxRadius = 0f;
+            if (milkyWayBackground != null)
             {
-                return 0.05f;
+                maxRadius = Mathf.Max(maxRadius, milkyWayBackground.radiusUnits);
             }
 
-            float intersectionDepth = Mathf.Max(0f, farDistance - nearDistance);
-            float clipPadding = Mathf.Min(0.35f, intersectionDepth * 0.2f);
-            return Mathf.Clamp(nearDistance + clipPadding, 0.01f, Mathf.Max(0.02f, farDistance - 0.05f));
+            if (sunMoonBackground != null)
+            {
+                maxRadius = Mathf.Max(maxRadius, sunMoonBackground.radiusUnits);
+            }
+
+            return maxRadius;
         }
 
         private void UpdateDebugVisuals(EarthMath.LocalFrame frame, Vector3 observerPosition)
@@ -678,6 +704,17 @@ namespace GlassGlobe
             {
                 targetCamera = GetComponentInChildren<Camera>();
             }
+
+            if (milkyWayBackground == null)
+            {
+                milkyWayBackground = FindFirstObjectByType<MilkyWayBackground>();
+            }
+
+            if (sunMoonBackground == null)
+            {
+                sunMoonBackground = FindFirstObjectByType<SunMoonBackground>();
+            }
         }
     }
 }
+

@@ -27,6 +27,9 @@ namespace GlassGlobe
         [Range(20f, 100f)]
         public float windowFovDegrees = 32.4f;
 
+        [Tooltip("Optional camera device name (or fragment) to use for the feed. Multi-lens phones expose each rear lens as its own device and the first one is not always the main lens the FOV above was tuned for.")]
+        public string preferredDeviceName = string.Empty;
+
         public bool startEnabledOnDevice = true;
 
         [Min(1f)]
@@ -39,6 +42,9 @@ namespace GlassGlobe
         private Transform quadTransform;
         private bool permissionRequested;
         private bool wantFeed;
+        private bool devicesLogged;
+        private float savedWindowFovDegrees;
+        private bool hasSavedWindowFov;
 
         private void Awake()
         {
@@ -131,7 +137,23 @@ namespace GlassGlobe
                 return;
             }
 
-            poseSensors.cameraFovDegrees = wantFeed && FeedActive ? feedVerticalFovDegrees : windowFovDegrees;
+            if (wantFeed && FeedActive)
+            {
+                // Remember whatever FOV the user had (default or slider-set) so
+                // toggling the feed off restores it instead of stomping it.
+                if (!hasSavedWindowFov)
+                {
+                    savedWindowFovDegrees = poseSensors.cameraFovDegrees;
+                    hasSavedWindowFov = true;
+                }
+
+                poseSensors.cameraFovDegrees = feedVerticalFovDegrees;
+            }
+            else
+            {
+                poseSensors.cameraFovDegrees = hasSavedWindowFov ? savedWindowFovDegrees : windowFovDegrees;
+                hasSavedWindowFov = false;
+            }
         }
 
         private bool HasCameraPermission()
@@ -152,20 +174,57 @@ namespace GlassGlobe
                 return false;
             }
 
-            string deviceName = devices[0].name;
-            foreach (WebCamDevice device in devices)
+            if (!devicesLogged)
             {
-                if (!device.isFrontFacing)
+                devicesLogged = true;
+                System.Text.StringBuilder deviceList = new System.Text.StringBuilder();
+                for (int index = 0; index < devices.Length; index++)
                 {
-                    deviceName = device.name;
-                    break;
+                    if (index > 0)
+                    {
+                        deviceList.Append(", ");
+                    }
+
+                    deviceList.Append(devices[index].name)
+                        .Append(devices[index].isFrontFacing ? " (front)" : " (rear)");
                 }
+
+                Debug.Log("GlassGlobeCameraFeed: available devices: " + deviceList +
+                    ". Set preferredDeviceName if the feed FOV looks wrong for the chosen lens.");
             }
 
+            string deviceName = SelectDeviceName(devices);
             webCamTexture = new WebCamTexture(deviceName, 1280, 720, 30);
             webCamTexture.Play();
             FeedStatus = "Starting camera...";
             return true;
+        }
+
+        private string SelectDeviceName(WebCamDevice[] devices)
+        {
+            if (!string.IsNullOrEmpty(preferredDeviceName))
+            {
+                foreach (WebCamDevice device in devices)
+                {
+                    if (device.name.IndexOf(preferredDeviceName, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return device.name;
+                    }
+                }
+
+                Debug.LogWarning("GlassGlobeCameraFeed: preferred device '" + preferredDeviceName +
+                    "' not found; falling back to the first rear camera.");
+            }
+
+            foreach (WebCamDevice device in devices)
+            {
+                if (!device.isFrontFacing)
+                {
+                    return device.name;
+                }
+            }
+
+            return devices[0].name;
         }
 
         private void StopFeed()
@@ -215,7 +274,7 @@ namespace GlassGlobe
             quadObject.transform.localPosition = new Vector3(0f, 0f, quadDistance);
 
             MeshFilter meshFilter = quadObject.AddComponent<MeshFilter>();
-            meshFilter.sharedMesh = BuildQuadMesh();
+            meshFilter.sharedMesh = GlassGlobeVisuals.BuildQuadMesh("GlassGlobe Camera Feed Quad");
 
             MeshRenderer meshRenderer = quadObject.AddComponent<MeshRenderer>();
             meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -274,29 +333,6 @@ namespace GlassGlobe
 
             Camera childCamera = GetComponentInChildren<Camera>();
             return childCamera != null ? childCamera.transform : transform;
-        }
-
-        private static Mesh BuildQuadMesh()
-        {
-            Mesh mesh = new Mesh();
-            mesh.name = "GlassGlobe Camera Feed Quad";
-            mesh.vertices = new[]
-            {
-                new Vector3(-0.5f, -0.5f, 0f),
-                new Vector3(0.5f, -0.5f, 0f),
-                new Vector3(-0.5f, 0.5f, 0f),
-                new Vector3(0.5f, 0.5f, 0f)
-            };
-            mesh.uv = new[]
-            {
-                new Vector2(0f, 0f),
-                new Vector2(1f, 0f),
-                new Vector2(0f, 1f),
-                new Vector2(1f, 1f)
-            };
-            mesh.triangles = new[] { 0, 2, 1, 1, 2, 3 };
-            mesh.RecalculateBounds();
-            return mesh;
         }
     }
 }

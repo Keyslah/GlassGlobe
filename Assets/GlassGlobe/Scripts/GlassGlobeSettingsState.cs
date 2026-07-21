@@ -5,7 +5,9 @@ namespace GlassGlobe
     /// <summary>
     /// Persistent source of truth for the settings UI. Keeping the state separate
     /// from the page renderer lets future settings pages reuse the same values
-    /// without coupling themselves to the current immediate-mode UI.
+    /// without coupling themselves to the current immediate-mode UI. Each setter
+    /// persists only its own key(s), so a single toggle no longer rewrites and
+    /// flushes the entire preference block.
     /// </summary>
     public static class GlassGlobeSettingsState
     {
@@ -45,6 +47,8 @@ namespace GlassGlobe
         private const string ArtCloudsOpacityKey = Prefix + "ArtCloudsOpacity";
         private const string WeatherCloudsKey = Prefix + "WeatherClouds";
         private const string WeatherRadarKey = Prefix + "WeatherRadar";
+        private const string SatellitesKey = Prefix + "Satellites";
+        private const string EarthquakesKey = Prefix + "Earthquakes";
         private const string HeadingFineOffsetKey = Prefix + "HeadingFineOffsetV4";
         private const string LegacyHeadingOffsetKey = Prefix + "HeadingOffsetV3";
         private const string LegacyManualHeadingKey = Prefix + "ManualHeadingCalibrationV3";
@@ -85,6 +89,8 @@ namespace GlassGlobe
         public static float ArtCloudsOpacity { get; private set; }
         public static bool WeatherCloudsEnabled { get; private set; }
         public static bool WeatherRadarEnabled { get; private set; }
+        public static bool SatellitesEnabled { get; private set; }
+        public static bool EarthquakesEnabled { get; private set; }
         public static float HeadingFineOffsetDegrees { get; private set; }
 
         public static GeoCoordinate ViewpointCoordinate
@@ -162,6 +168,8 @@ namespace GlassGlobe
             ArtCloudsOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(ArtCloudsOpacityKey, 0.8f));
             WeatherCloudsEnabled = ReadBool(WeatherCloudsKey, true);
             WeatherRadarEnabled = ReadBool(WeatherRadarKey, true);
+            SatellitesEnabled = ReadBool(SatellitesKey, true);
+            EarthquakesEnabled = ReadBool(EarthquakesKey, true);
             HeadingFineOffsetDegrees = ReadHeadingFineOffset();
             loaded = true;
         }
@@ -170,98 +178,98 @@ namespace GlassGlobe
         {
             Load();
             CameraFeedEnabled = value;
-            Save();
+            WriteBool(CameraFeedKey, value);
         }
 
         public static void SetMainHudVisible(bool value)
         {
             Load();
             MainHudVisible = value;
-            Save();
+            WriteBool(MainHudKey, value);
         }
 
         public static void SetCountryBannerVisible(bool value)
         {
             Load();
             CountryBannerVisible = value;
-            Save();
+            WriteBool(CountryBannerKey, value);
         }
 
         public static void SetCountryBannerAtTop(bool value)
         {
             Load();
             CountryBannerAtTop = value;
-            Save();
+            WriteBool(CountryBannerTopKey, value);
         }
 
         public static void SetCountryOutlineColor(Color value)
         {
             Load();
             CountryOutlineColor = value;
-            Save();
+            WriteColor(CountryOutlineColorKey, value);
         }
 
         public static void SetGridColor(Color value)
         {
             Load();
             GridColor = value;
-            Save();
+            WriteColor(GridColorKey, value);
         }
 
         public static void SetGridVisible(bool value)
         {
             Load();
             GridVisible = value;
-            Save();
+            WriteBool(GridVisibleKey, value);
         }
 
         public static void SetCountryOutlineThickness(float value)
         {
             Load();
             CountryOutlineThickness = Mathf.Clamp(value, 0.25f, 3f);
-            Save();
+            WriteFloat(CountryOutlineThicknessKey, CountryOutlineThickness);
         }
 
         public static void SetGridThickness(float value)
         {
             Load();
             GridThickness = Mathf.Clamp(value, 0.25f, 3f);
-            Save();
+            WriteFloat(GridThicknessKey, GridThickness);
         }
 
         public static void SetHideUserCoordinates(bool value)
         {
             Load();
             HideUserCoordinates = value;
-            Save();
+            WriteBool(HideUserCoordinatesKey, value);
         }
 
         public static void SetHideFarSideCoordinates(bool value)
         {
             Load();
             HideFarSideCoordinates = value;
-            Save();
+            WriteBool(HideFarSideCoordinatesKey, value);
         }
 
         public static void SetHideLocationAccuracy(bool value)
         {
             Load();
             HideLocationAccuracy = value;
-            Save();
+            WriteBool(HideLocationAccuracyKey, value);
         }
 
         public static void SetHideViewedRegion(bool value)
         {
             Load();
             HideViewedRegion = value;
-            Save();
+            WriteBool(HideViewedRegionKey, value);
         }
 
         public static void SetShowViewedFromName(bool value)
         {
             Load();
             ShowViewedFromName = value;
-            Save();
+            WriteBool(ShowViewedFromNameKey, value);
         }
 
         public static void SetPrivacyMode(bool value)
@@ -272,7 +280,12 @@ namespace GlassGlobe
             HideLocationAccuracy = value;
             HideViewedRegion = value;
             ShowViewedFromName = !value;
-            Save();
+            PlayerPrefs.SetInt(HideUserCoordinatesKey, value ? 1 : 0);
+            PlayerPrefs.SetInt(HideFarSideCoordinatesKey, value ? 1 : 0);
+            PlayerPrefs.SetInt(HideLocationAccuracyKey, value ? 1 : 0);
+            PlayerPrefs.SetInt(HideViewedRegionKey, value ? 1 : 0);
+            PlayerPrefs.SetInt(ShowViewedFromNameKey, value ? 0 : 1);
+            PlayerPrefs.Save();
         }
 
         public static void SetViewpoint(GeoCoordinate coordinate, string label)
@@ -282,126 +295,144 @@ namespace GlassGlobe
             ViewpointLatitude = coordinate.Latitude;
             ViewpointLongitude = coordinate.Longitude;
             ViewpointLabel = string.IsNullOrWhiteSpace(label) ? "Selected viewpoint" : label.Trim();
-            Save();
+            PlayerPrefs.SetInt(ViewpointOverrideKey, 1);
+            PlayerPrefs.SetFloat(ViewpointLatitudeKey, ViewpointLatitude);
+            PlayerPrefs.SetFloat(ViewpointLongitudeKey, ViewpointLongitude);
+            PlayerPrefs.SetString(ViewpointLabelKey, ViewpointLabel);
+            PlayerPrefs.Save();
         }
 
         public static void UseRealLocation()
         {
             Load();
             ViewpointOverrideEnabled = false;
-            Save();
+            WriteBool(ViewpointOverrideKey, false);
         }
 
         public static void SetCountryLabelsVisible(bool value)
         {
             Load();
             CountryLabelsVisible = value;
-            Save();
+            WriteBool(CountryLabelsKey, value);
         }
 
         public static void SetSunEnabled(bool value)
         {
             Load();
             SunEnabled = value;
-            Save();
+            WriteBool(SunKey, value);
         }
 
         public static void SetMoonEnabled(bool value)
         {
             Load();
             MoonEnabled = value;
-            Save();
+            WriteBool(MoonKey, value);
         }
 
         public static void SetMilkyWayEnabled(bool value)
         {
             Load();
             MilkyWayEnabled = value;
-            Save();
+            WriteBool(MilkyWayKey, value);
         }
 
         public static void SetNightLightsEnabled(bool value)
         {
             Load();
             NightLightsEnabled = value;
-            Save();
+            WriteBool(NightLightsKey, value);
         }
 
         public static void SetRimGlowEnabled(bool value)
         {
             Load();
             RimGlowEnabled = value;
-            Save();
+            WriteBool(RimGlowKey, value);
         }
 
         public static void SetWaterArtEnabled(bool value)
         {
             Load();
             WaterArtEnabled = value;
-            Save();
+            WriteBool(WaterArtKey, value);
         }
 
         public static void SetWaterArtOpacity(float value)
         {
             Load();
             WaterArtOpacity = Mathf.Clamp(value, 0.05f, 1f);
-            Save();
+            WriteFloat(WaterArtOpacityKey, WaterArtOpacity);
         }
 
         public static void SetLandArtEnabled(bool value)
         {
             Load();
             LandArtEnabled = value;
-            Save();
+            WriteBool(LandArtKey, value);
         }
 
         public static void SetLandArtOpacity(float value)
         {
             Load();
             LandArtOpacity = Mathf.Clamp(value, 0.05f, 1f);
-            Save();
+            WriteFloat(LandArtOpacityKey, LandArtOpacity);
         }
 
         public static void SetOceanArtEnabled(bool value)
         {
             Load();
             OceanArtEnabled = value;
-            Save();
+            WriteBool(OceanArtKey, value);
         }
 
         public static void SetOceanArtOpacity(float value)
         {
             Load();
             OceanArtOpacity = Mathf.Clamp(value, 0.05f, 1f);
-            Save();
+            WriteFloat(OceanArtOpacityKey, OceanArtOpacity);
         }
 
         public static void SetArtCloudsEnabled(bool value)
         {
             Load();
             ArtCloudsEnabled = value;
-            Save();
+            WriteBool(ArtCloudsKey, value);
         }
 
         public static void SetArtCloudsOpacity(float value)
         {
             Load();
             ArtCloudsOpacity = Mathf.Clamp(value, 0.05f, 1f);
-            Save();
+            WriteFloat(ArtCloudsOpacityKey, ArtCloudsOpacity);
         }
 
         public static void SetWeatherCloudsEnabled(bool value)
         {
             Load();
             WeatherCloudsEnabled = value;
-            Save();
+            WriteBool(WeatherCloudsKey, value);
         }
 
         public static void SetWeatherRadarEnabled(bool value)
         {
             Load();
             WeatherRadarEnabled = value;
-            Save();
+            WriteBool(WeatherRadarKey, value);
+        }
+
+        public static void SetSatellitesEnabled(bool value)
+        {
+            Load();
+            SatellitesEnabled = value;
+            WriteBool(SatellitesKey, value);
+        }
+
+        public static void SetEarthquakesEnabled(bool value)
+        {
+            Load();
+            EarthquakesEnabled = value;
+            WriteBool(EarthquakesKey, value);
         }
 
         public static void SetHeadingFineOffset(float offsetDegrees)
@@ -413,7 +444,7 @@ namespace GlassGlobe
             }
 
             HeadingFineOffsetDegrees = Mathf.Repeat(offsetDegrees + 180f, 360f) - 180f;
-            Save();
+            WriteFloat(HeadingFineOffsetKey, HeadingFineOffsetDegrees);
         }
 
         private static float ReadHeadingFineOffset()
@@ -444,43 +475,21 @@ namespace GlassGlobe
                 : defaultValue;
         }
 
-        private static void Save()
+        private static void WriteBool(string key, bool value)
         {
-            PlayerPrefs.SetInt(CameraFeedKey, CameraFeedEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(MainHudKey, MainHudVisible ? 1 : 0);
-            PlayerPrefs.SetInt(CountryBannerKey, CountryBannerVisible ? 1 : 0);
-            PlayerPrefs.SetInt(CountryBannerTopKey, CountryBannerAtTop ? 1 : 0);
-            PlayerPrefs.SetString(CountryOutlineColorKey, "#" + ColorUtility.ToHtmlStringRGBA(CountryOutlineColor));
-            PlayerPrefs.SetString(GridColorKey, "#" + ColorUtility.ToHtmlStringRGBA(GridColor));
-            PlayerPrefs.SetInt(GridVisibleKey, GridVisible ? 1 : 0);
-            PlayerPrefs.SetFloat(CountryOutlineThicknessKey, CountryOutlineThickness);
-            PlayerPrefs.SetFloat(GridThicknessKey, GridThickness);
-            PlayerPrefs.SetInt(HideUserCoordinatesKey, HideUserCoordinates ? 1 : 0);
-            PlayerPrefs.SetInt(HideFarSideCoordinatesKey, HideFarSideCoordinates ? 1 : 0);
-            PlayerPrefs.SetInt(HideLocationAccuracyKey, HideLocationAccuracy ? 1 : 0);
-            PlayerPrefs.SetInt(HideViewedRegionKey, HideViewedRegion ? 1 : 0);
-            PlayerPrefs.SetInt(ShowViewedFromNameKey, ShowViewedFromName ? 1 : 0);
-            PlayerPrefs.SetInt(ViewpointOverrideKey, ViewpointOverrideEnabled ? 1 : 0);
-            PlayerPrefs.SetFloat(ViewpointLatitudeKey, ViewpointLatitude);
-            PlayerPrefs.SetFloat(ViewpointLongitudeKey, ViewpointLongitude);
-            PlayerPrefs.SetString(ViewpointLabelKey, ViewpointLabel ?? string.Empty);
-            PlayerPrefs.SetInt(CountryLabelsKey, CountryLabelsVisible ? 1 : 0);
-            PlayerPrefs.SetInt(MilkyWayKey, MilkyWayEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(SunKey, SunEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(MoonKey, MoonEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(NightLightsKey, NightLightsEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(RimGlowKey, RimGlowEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(WaterArtKey, WaterArtEnabled ? 1 : 0);
-            PlayerPrefs.SetFloat(WaterArtOpacityKey, WaterArtOpacity);
-            PlayerPrefs.SetInt(LandArtKey, LandArtEnabled ? 1 : 0);
-            PlayerPrefs.SetFloat(LandArtOpacityKey, LandArtOpacity);
-            PlayerPrefs.SetInt(OceanArtKey, OceanArtEnabled ? 1 : 0);
-            PlayerPrefs.SetFloat(OceanArtOpacityKey, OceanArtOpacity);
-            PlayerPrefs.SetInt(ArtCloudsKey, ArtCloudsEnabled ? 1 : 0);
-            PlayerPrefs.SetFloat(ArtCloudsOpacityKey, ArtCloudsOpacity);
-            PlayerPrefs.SetInt(WeatherCloudsKey, WeatherCloudsEnabled ? 1 : 0);
-            PlayerPrefs.SetInt(WeatherRadarKey, WeatherRadarEnabled ? 1 : 0);
-            PlayerPrefs.SetFloat(HeadingFineOffsetKey, HeadingFineOffsetDegrees);
+            PlayerPrefs.SetInt(key, value ? 1 : 0);
+            PlayerPrefs.Save();
+        }
+
+        private static void WriteFloat(string key, float value)
+        {
+            PlayerPrefs.SetFloat(key, value);
+            PlayerPrefs.Save();
+        }
+
+        private static void WriteColor(string key, Color value)
+        {
+            PlayerPrefs.SetString(key, "#" + ColorUtility.ToHtmlStringRGBA(value));
             PlayerPrefs.Save();
         }
     }

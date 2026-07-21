@@ -107,6 +107,27 @@ public static class GlassGlobeBuildValidator
             LogRequired(ref errors, weather.radarMaterial != null, "GlassGlobeBuildValidator: WeatherOverlay radar material is not assigned, the weather shader would be stripped.");
         }
 
+        SatelliteOverlay satellites = FindInScene<SatelliteOverlay>(scene);
+        LogRequired(ref errors, satellites != null, "GlassGlobeBuildValidator: missing SatelliteOverlay.");
+        if (satellites != null)
+        {
+            LogRequired(ref errors, satellites.markerMaterial != null, "GlassGlobeBuildValidator: SatelliteOverlay marker material is not assigned, the sprite shader would be stripped.");
+        }
+
+        EarthquakeOverlay earthquakes = FindInScene<EarthquakeOverlay>(scene);
+        LogRequired(ref errors, earthquakes != null, "GlassGlobeBuildValidator: missing EarthquakeOverlay.");
+        if (earthquakes != null)
+        {
+            LogRequired(ref errors, earthquakes.markerMaterial != null, "GlassGlobeBuildValidator: EarthquakeOverlay marker material is not assigned, the sprite shader would be stripped.");
+        }
+
+        SunMoonBackground sunMoon = FindInScene<SunMoonBackground>(scene);
+        LogRequired(ref errors, sunMoon != null, "GlassGlobeBuildValidator: missing SunMoonBackground.");
+        if (sunMoon != null)
+        {
+            LogRequired(ref errors, sunMoon.planetMaterial != null, "GlassGlobeBuildValidator: SunMoonBackground planet material is not assigned, planet dots would share the Moon phase texture.");
+        }
+
         CountryBorderRenderer borders = FindInScene<CountryBorderRenderer>(scene);
         LogRequired(ref errors, borders != null, "GlassGlobeBuildValidator: missing CountryBorderRenderer.");
         if (borders != null)

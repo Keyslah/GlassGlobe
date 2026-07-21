@@ -16,6 +16,8 @@ namespace GlassGlobe
     /// embedding — weather lands on the true latitude/longitude seen through
     /// the planet. Shells cull the near hemisphere (Cull Front) so weather
     /// paints only the far side, matching the transparent globe's look-through.
+    /// Each cloud source keeps its own persistent pixel buffer, so a failed
+    /// refresh of one satellite network never wipes the other's hemisphere.
     /// </summary>
     public sealed class WeatherOverlay : MonoBehaviour
     {
@@ -119,7 +121,13 @@ namespace GlassGlobe
         private MeshRenderer radarRenderer;
         private Texture2D cloudTexture;
         private Texture2D radarTexture;
+        private Color32[] gibsCloudPixels;
+        private Color32[] eumetsatCloudPixels;
+        private Color32[] mergedCloudPixels;
+        private Color32[] radarCanvasPixels;
         private Color32[] radarPixels;
+        private bool hasGibsData;
+        private bool hasEumetsatData;
         private bool hasCloudData;
         private bool hasRadarData;
         private bool artCloudsWantData;
@@ -264,7 +272,7 @@ namespace GlassGlobe
             CloudsStatus = "Updating clouds...";
             int width = TextureWidthClamped;
             int height = width / 2;
-            Color32[] merged = new Color32[width * height];
+            EnsureCloudBuffers(width, height);
             bool[] gibsResult = { false };
             bool[] eumetsatResult = { false };
 
@@ -273,7 +281,7 @@ namespace GlassGlobe
                 gibsCloudFloor,
                 gibsCloudCeiling,
                 gibsColorSaturationThreshold,
-                merged,
+                gibsCloudPixels,
                 width,
                 height,
                 gibsResult);
@@ -283,27 +291,64 @@ namespace GlassGlobe
                 eumetsatCloudFloor,
                 eumetsatCloudCeiling,
                 2f,
-                merged,
+                eumetsatCloudPixels,
                 width,
                 height,
                 eumetsatResult);
 
+            hasGibsData = hasGibsData || gibsResult[0];
+            hasEumetsatData = hasEumetsatData || eumetsatResult[0];
+
             if (!gibsResult[0] && !eumetsatResult[0])
             {
-                CloudsStatus = "Cloud imagery unavailable; retrying";
+                // Keep whatever imagery is already on screen; just try again.
+                CloudsStatus = hasCloudData
+                    ? "Cloud update failed; showing previous imagery"
+                    : "Cloud imagery unavailable; retrying";
                 nextCloudAttemptTime = Time.unscaledTime + retrySeconds;
                 yield break;
             }
 
-            cloudTexture.SetPixels32(merged);
+            // Merge both persistent source buffers so the hemisphere covered by
+            // a source that failed this round keeps its previous clouds.
+            for (int row = 0; row < height; row += RowsPerSlice)
+            {
+                int sliceEnd = Mathf.Min(height, row + RowsPerSlice) * width;
+                for (int pixelIndex = row * width; pixelIndex < sliceEnd; pixelIndex++)
+                {
+                    byte gibsAlpha = gibsCloudPixels[pixelIndex].a;
+                    byte eumetsatAlpha = eumetsatCloudPixels[pixelIndex].a;
+                    byte alpha = gibsAlpha > eumetsatAlpha ? gibsAlpha : eumetsatAlpha;
+                    mergedCloudPixels[pixelIndex] = alpha > 0
+                        ? new Color32(255, 255, 255, alpha)
+                        : default(Color32);
+                }
+
+                yield return null;
+            }
+
+            cloudTexture.SetPixels32(mergedCloudPixels);
             cloudTexture.Apply(false);
             hasCloudData = true;
 
-            string sources = gibsResult[0] && eumetsatResult[0]
+            string sources = hasGibsData && hasEumetsatData
                 ? "NASA GIBS + EUMETSAT"
-                : (gibsResult[0] ? "NASA GIBS" : "EUMETSAT");
+                : (hasGibsData ? "NASA GIBS" : "EUMETSAT");
             CloudsStatus = string.Format("Updated {0:HH:mm} UTC. Imagery: {1}", DateTime.UtcNow, sources);
             nextCloudAttemptTime = Time.unscaledTime + refreshSeconds;
+        }
+
+        private void EnsureCloudBuffers(int width, int height)
+        {
+            int length = width * height;
+            if (gibsCloudPixels == null || gibsCloudPixels.Length != length)
+            {
+                gibsCloudPixels = new Color32[length];
+                eumetsatCloudPixels = new Color32[length];
+                mergedCloudPixels = new Color32[length];
+                hasGibsData = false;
+                hasEumetsatData = false;
+            }
         }
 
         private IEnumerator FetchCloudSource(
@@ -350,6 +395,7 @@ namespace GlassGlobe
                 Color32[] pixels = downloaded.GetPixels32();
                 Destroy(downloaded);
 
+                Array.Clear(destination, 0, destination.Length);
                 float range = Mathf.Max(0.0001f, cloudCeiling - cloudFloor);
                 float fadeEnd = Mathf.Max(cloudFadeEndLatitude, cloudFadeStartLatitude + 0.1f);
                 for (int row = 0; row < height; row += RowsPerSlice)
@@ -386,10 +432,7 @@ namespace GlassGlobe
                         }
 
                         byte alpha = (byte)Mathf.RoundToInt(cloud * 255f);
-                        if (alpha > destination[pixelIndex].a)
-                        {
-                            destination[pixelIndex] = new Color32(255, 255, 255, alpha);
-                        }
+                        destination[pixelIndex] = new Color32(255, 255, 255, alpha);
                     }
 
                     yield return null;
@@ -455,59 +498,92 @@ namespace GlassGlobe
 
             int tilesPerSide = 1 << zoom;
             int canvasSide = tilesPerSide * RadarTileSize;
-            Color32[] canvas = new Color32[canvasSide * canvasSide];
-
-            for (int tileY = 0; tileY < tilesPerSide; tileY++)
+            if (radarCanvasPixels == null || radarCanvasPixels.Length != canvasSide * canvasSide)
             {
-                for (int tileX = 0; tileX < tilesPerSide; tileX++)
+                radarCanvasPixels = new Color32[canvasSide * canvasSide];
+            }
+
+            // Fire all tile requests at once; awaiting them one by one below
+            // still lets them download concurrently.
+            int tileCount = tilesPerSide * tilesPerSide;
+            UnityWebRequest[] tileRequests = new UnityWebRequest[tileCount];
+            for (int tileIndex = 0; tileIndex < tileCount; tileIndex++)
+            {
+                int tileX = tileIndex % tilesPerSide;
+                int tileY = tileIndex / tilesPerSide;
+                string tileUrl = maps.host + frame.path + "/" + RadarTileSize + "/" + zoom + "/" +
+                    tileX + "/" + tileY + "/" + RadarColorScheme + "/" + RadarOptions + ".png";
+                tileRequests[tileIndex] = UnityWebRequestTexture.GetTexture(tileUrl, false);
+                tileRequests[tileIndex].timeout = 30;
+                tileRequests[tileIndex].SendWebRequest();
+            }
+
+            bool tilesFailed = false;
+            for (int tileIndex = 0; tileIndex < tileCount; tileIndex++)
+            {
+                UnityWebRequest request = tileRequests[tileIndex];
+                while (!request.isDone)
                 {
-                    string tileUrl = maps.host + frame.path + "/" + RadarTileSize + "/" + zoom + "/" +
-                        tileX + "/" + tileY + "/" + RadarColorScheme + "/" + RadarOptions + ".png";
+                    yield return null;
+                }
 
-                    using (UnityWebRequest request = UnityWebRequestTexture.GetTexture(tileUrl, false))
+                if (!tilesFailed && request.result == UnityWebRequest.Result.Success)
+                {
+                    Texture2D tile = null;
+                    try
                     {
-                        request.timeout = 30;
-                        yield return request.SendWebRequest();
+                        tile = DownloadHandlerTexture.GetContent(request);
+                    }
+                    catch (Exception exception)
+                    {
+                        Debug.LogWarning("GlassGlobeWeather: radar tile decode failed: " + exception.Message);
+                    }
 
-                        if (request.result != UnityWebRequest.Result.Success)
+                    if (tile == null || tile.width != RadarTileSize || tile.height != RadarTileSize)
+                    {
+                        if (tile != null)
                         {
-                            RadarStatus = "Radar tiles unavailable; retrying";
-                            nextRadarAttemptTime = Time.unscaledTime + retrySeconds;
-                            yield break;
+                            Destroy(tile);
                         }
 
-                        Texture2D tile = DownloadHandlerTexture.GetContent(request);
-                        if (tile == null || tile.width != RadarTileSize || tile.height != RadarTileSize)
-                        {
-                            if (tile != null)
-                            {
-                                Destroy(tile);
-                            }
-
-                            RadarStatus = "Radar tile malformed; retrying";
-                            nextRadarAttemptTime = Time.unscaledTime + retrySeconds;
-                            yield break;
-                        }
-
+                        tilesFailed = true;
+                    }
+                    else
+                    {
                         Color32[] tilePixels = tile.GetPixels32();
                         Destroy(tile);
 
                         // XYZ tile row 0 is the north edge; both the tile pixel
                         // array and the canvas use bottom-left origin.
+                        int tileX = tileIndex % tilesPerSide;
+                        int tileY = tileIndex / tilesPerSide;
                         int canvasBaseRow = canvasSide - (tileY + 1) * RadarTileSize;
                         for (int localRow = 0; localRow < RadarTileSize; localRow++)
                         {
                             Array.Copy(
                                 tilePixels,
                                 localRow * RadarTileSize,
-                                canvas,
+                                radarCanvasPixels,
                                 (canvasBaseRow + localRow) * canvasSide + tileX * RadarTileSize,
                                 RadarTileSize);
                         }
-                    }
 
-                    yield return null;
+                        yield return null;
+                    }
                 }
+                else if (request.result != UnityWebRequest.Result.Success)
+                {
+                    tilesFailed = true;
+                }
+
+                request.Dispose();
+            }
+
+            if (tilesFailed)
+            {
+                RadarStatus = "Radar tiles unavailable; retrying";
+                nextRadarAttemptTime = Time.unscaledTime + retrySeconds;
+                yield break;
             }
 
             if (radarPixels == null || radarPixels.Length != width * height)
@@ -532,7 +608,7 @@ namespace GlassGlobe
                 int sourceRowFromTop = Mathf.Clamp(
                     Mathf.FloorToInt(mercatorFromTop * canvasSide), 0, canvasSide - 1);
                 int sourceRow = canvasSide - 1 - sourceRowFromTop;
-                Array.Copy(canvas, sourceRow * canvasSide, radarPixels, row * width, width);
+                Array.Copy(radarCanvasPixels, sourceRow * canvasSide, radarPixels, row * width, width);
             }
 
             radarTexture.SetPixels32(radarPixels);
@@ -609,72 +685,14 @@ namespace GlassGlobe
             shellObject.transform.position = center;
 
             MeshFilter meshFilter = shellObject.AddComponent<MeshFilter>();
-            meshFilter.sharedMesh = BuildShellMesh(name + " Mesh", radius);
+            meshFilter.sharedMesh = GlassGlobeVisuals.BuildGeoShellMesh(
+                name + " Mesh", radius, longitudeSegments, latitudeSegments, MaxShellLatitude, false);
 
             MeshRenderer renderer = shellObject.AddComponent<MeshRenderer>();
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
             renderer.sharedMaterial = material;
             return renderer;
-        }
-
-        private Mesh BuildShellMesh(string name, float radius)
-        {
-            int lonCount = Mathf.Max(8, longitudeSegments);
-            int latCount = Mathf.Max(4, latitudeSegments);
-            int vertexCount = (latCount + 1) * (lonCount + 1);
-            Vector3[] vertices = new Vector3[vertexCount];
-            Vector2[] uvs = new Vector2[vertexCount];
-            int[] triangles = new int[latCount * lonCount * 6];
-
-            int vertexIndex = 0;
-            for (int latIndex = 0; latIndex <= latCount; latIndex++)
-            {
-                float latitude = Mathf.Lerp(-MaxShellLatitude, MaxShellLatitude, latIndex / (float)latCount);
-                for (int lonIndex = 0; lonIndex <= lonCount; lonIndex++)
-                {
-                    float u = lonIndex / (float)lonCount;
-                    float longitude = Mathf.Lerp(-180f, 180f, u);
-
-                    // GeoToPoint carries the globe's mirrored embedding, so the
-                    // equirectangular weather texture reads true through the
-                    // left-handed camera. It also flips triangle orientation
-                    // relative to a standard sphere: with this index order the
-                    // far-side interior is the back face, which is what the
-                    // shader's Cull Front keeps.
-                    vertices[vertexIndex] = EarthMath.GeoToPoint(
-                        new GeoCoordinate(latitude, longitude), radius, Vector3.zero);
-                    uvs[vertexIndex] = new Vector2(u, (latitude + 90f) / 180f);
-                    vertexIndex++;
-                }
-            }
-
-            int triangleIndex = 0;
-            int stride = lonCount + 1;
-            for (int latIndex = 0; latIndex < latCount; latIndex++)
-            {
-                for (int lonIndex = 0; lonIndex < lonCount; lonIndex++)
-                {
-                    int current = latIndex * stride + lonIndex;
-                    int next = current + stride;
-
-                    triangles[triangleIndex++] = current;
-                    triangles[triangleIndex++] = next;
-                    triangles[triangleIndex++] = current + 1;
-
-                    triangles[triangleIndex++] = current + 1;
-                    triangles[triangleIndex++] = next;
-                    triangles[triangleIndex++] = next + 1;
-                }
-            }
-
-            Mesh mesh = new Mesh();
-            mesh.name = name;
-            mesh.vertices = vertices;
-            mesh.uv = uvs;
-            mesh.triangles = triangles;
-            mesh.RecalculateBounds();
-            return mesh;
         }
     }
 }

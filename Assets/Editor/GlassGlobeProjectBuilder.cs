@@ -188,6 +188,10 @@ public static class GlassGlobeProjectBuilder
             Material moonMaterial = new Material(skySpriteShader);
             moonMaterial.name = "GlassGlobe Moon Sprite";
             sunMoon.moonMaterial = moonMaterial;
+
+            Material planetMaterial = new Material(skySpriteShader);
+            planetMaterial.name = "GlassGlobe Planet Sprite";
+            sunMoon.planetMaterial = planetMaterial;
         }
         else
         {
@@ -257,6 +261,30 @@ public static class GlassGlobeProjectBuilder
         else
         {
             Debug.LogWarning("GlassGlobeProjectBuilder: GlassGlobe/Stylized Ocean shader not found at scene build time.");
+        }
+
+        GameObject satelliteObject = new GameObject("Satellite Overlay");
+        satelliteObject.transform.SetParent(root.transform, false);
+        SatelliteOverlay satelliteOverlay = satelliteObject.AddComponent<SatelliteOverlay>();
+        satelliteOverlay.globe = globe;
+        satelliteOverlay.targetCamera = camera;
+        if (skySpriteShader != null)
+        {
+            Material satelliteMaterial = new Material(skySpriteShader);
+            satelliteMaterial.name = "GlassGlobe Satellite Marker";
+            satelliteOverlay.markerMaterial = satelliteMaterial;
+        }
+
+        GameObject earthquakeObject = new GameObject("Earthquake Overlay");
+        earthquakeObject.transform.SetParent(root.transform, false);
+        EarthquakeOverlay earthquakeOverlay = earthquakeObject.AddComponent<EarthquakeOverlay>();
+        earthquakeOverlay.globe = globe;
+        earthquakeOverlay.targetCamera = camera;
+        if (skySpriteShader != null)
+        {
+            Material earthquakeMaterial = new Material(skySpriteShader);
+            earthquakeMaterial.name = "GlassGlobe Earthquake Marker";
+            earthquakeOverlay.markerMaterial = earthquakeMaterial;
         }
 
         GameObject borderRoot = new GameObject("Country Border Line Renderers");

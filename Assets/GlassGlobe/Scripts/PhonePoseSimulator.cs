@@ -5,6 +5,12 @@ namespace GlassGlobe
     [ExecuteAlways]
     public sealed class PhonePoseSimulator : MonoBehaviour
     {
+        /// <summary>
+        /// Single source of truth for how far the simulated view may tilt from
+        /// straight down. The HUD sliders and drag controls share this limit.
+        /// </summary>
+        public const float MaxTiltDegrees = 78f;
+
         public GeoCoordinate userCoordinate = new GeoCoordinate(37.7749f, -122.4194f);
         public Vector3 earthCenter = Vector3.zero;
 
@@ -20,7 +26,7 @@ namespace GlassGlobe
         [Min(1f)]
         public float phoneViewportHeightInches = 5.8f;
 
-        [Range(0f, 78f)]
+        [Range(0f, MaxTiltDegrees)]
         public float tiltDegrees = 45f;
 
         [Range(0f, 360f)]
@@ -73,7 +79,7 @@ namespace GlassGlobe
             eyeToPhoneDistanceInches = Mathf.Max(1f, eyeToPhoneDistanceInches);
             phoneViewportHeightInches = Mathf.Max(1f, phoneViewportHeightInches);
             headingDegrees = Mathf.Repeat(headingDegrees, 360f);
-            tiltDegrees = Mathf.Clamp(tiltDegrees, 0f, 78f);
+            tiltDegrees = Mathf.Clamp(tiltDegrees, 0f, MaxTiltDegrees);
             cameraFovDegrees = Mathf.Clamp(cameraFovDegrees, 20f, 100f);
             ApplyPose();
         }
@@ -133,7 +139,7 @@ namespace GlassGlobe
         private void ApplyDragDelta(Vector2 delta)
         {
             headingDegrees = Mathf.Repeat(headingDegrees - delta.x * dragHeadingSensitivity, 360f);
-            tiltDegrees = Mathf.Clamp(tiltDegrees + delta.y * dragTiltSensitivity, 0f, 72f);
+            tiltDegrees = Mathf.Clamp(tiltDegrees + delta.y * dragTiltSensitivity, 0f, MaxTiltDegrees);
         }
 
         public Ray GetCenterRay()
@@ -176,31 +182,43 @@ namespace GlassGlobe
             {
                 camera.transform.SetPositionAndRotation(ObserverPosition, ObserverRotation);
                 camera.fieldOfView = cameraFovDegrees;
-                camera.nearClipPlane = CalculateThroughEarthNearClip();
-                camera.farClipPlane = Mathf.Max(camera.farClipPlane, earthRadiusUnits * 8f);
+                camera.nearClipPlane = EarthMath.CalculateThroughEarthNearClip(
+                    ObserverPosition, ViewDirection, earthCenter, earthRadiusUnits);
+                camera.farClipPlane = Mathf.Max(
+                    camera.farClipPlane,
+                    EarthMath.CalculateSkyFarClip(earthRadiusUnits, MaxSkyRadius()));
             }
 
             UpdateDebugVisuals();
         }
 
-        private float CalculateThroughEarthNearClip()
+        private MilkyWayBackground milkyWayBackground;
+        private SunMoonBackground sunMoonBackground;
+
+        private float MaxSkyRadius()
         {
-            float nearDistance;
-            float farDistance;
-            Ray viewRay = new Ray(ObserverPosition, ViewDirection);
-            if (!EarthMath.RaySphereIntersections(
-                    viewRay,
-                    earthCenter,
-                    earthRadiusUnits,
-                    out nearDistance,
-                    out farDistance))
+            if (milkyWayBackground == null)
             {
-                return 0.01f;
+                milkyWayBackground = FindFirstObjectByType<MilkyWayBackground>();
             }
 
-            float intersectionDepth = Mathf.Max(0f, farDistance - nearDistance);
-            float clipPadding = Mathf.Min(0.35f, intersectionDepth * 0.2f);
-            return Mathf.Clamp(nearDistance + clipPadding, 0.01f, Mathf.Max(0.02f, farDistance - 0.05f));
+            if (sunMoonBackground == null)
+            {
+                sunMoonBackground = FindFirstObjectByType<SunMoonBackground>();
+            }
+
+            float maxRadius = 0f;
+            if (milkyWayBackground != null)
+            {
+                maxRadius = Mathf.Max(maxRadius, milkyWayBackground.radiusUnits);
+            }
+
+            if (sunMoonBackground != null)
+            {
+                maxRadius = Mathf.Max(maxRadius, sunMoonBackground.radiusUnits);
+            }
+
+            return maxRadius;
         }
 
         private Camera ResolveCamera()

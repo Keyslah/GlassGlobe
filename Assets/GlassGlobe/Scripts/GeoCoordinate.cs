@@ -4,7 +4,7 @@ using UnityEngine;
 namespace GlassGlobe
 {
     [Serializable]
-    public struct GeoCoordinate
+    public struct GeoCoordinate : ISerializationCallbackReceiver
     {
         [SerializeField]
         private float latitude;
@@ -28,6 +28,18 @@ namespace GlassGlobe
         {
             get { return longitude; }
             set { longitude = EarthMath.WrapLongitude(value); }
+        }
+
+        public void OnBeforeSerialize()
+        {
+        }
+
+        public void OnAfterDeserialize()
+        {
+            // Unity writes the serialized fields directly, bypassing the
+            // property setters, so re-apply the clamps after deserialization.
+            latitude = EarthMath.ClampLatitude(latitude);
+            longitude = EarthMath.WrapLongitude(longitude);
         }
 
         public override string ToString()

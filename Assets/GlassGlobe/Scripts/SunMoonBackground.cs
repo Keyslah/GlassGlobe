@@ -5,9 +5,12 @@ namespace GlassGlobe
 {
     /// <summary>
     /// Renders the Sun and Moon as billboard sprites at their true sky
-    /// positions for the observer's viewpoint and the current time. Sprites sit
-    /// between the Milky Way and the camera feed in the render queue, so they
-    /// are part of the sky background and hidden while the camera feed is on.
+    /// positions for the observer's viewpoint and the current time, plus the
+    /// bright-star and planet guide markers. Sprites sit between the Milky Way
+    /// and the camera feed in the render queue, so they are part of the sky
+    /// background and hidden while the camera feed is on. The Moon shows its
+    /// real phase: the terminator comes from the Sun-Moon elongation and the
+    /// bright limb is rolled toward the Sun's on-screen direction.
     /// </summary>
     public sealed class SunMoonBackground : MonoBehaviour
     {
@@ -21,6 +24,9 @@ namespace GlassGlobe
         [Tooltip("Assigned at scene build time so the sprite shader is not stripped from the player build.")]
         public Material moonMaterial;
 
+        [Tooltip("Assigned at scene build time so planet dots do not share the Moon's phase texture.")]
+        public Material planetMaterial;
+
         [Min(20f)]
         public float radiusUnits = 85f;
 
@@ -31,10 +37,16 @@ namespace GlassGlobe
         [Range(1f, 20f)]
         public float moonAngularDegrees = 4f;
 
+        public bool verboseLogging = false;
+
         public bool SunVisible { get; private set; }
         public bool MoonVisible { get; private set; }
         public string SunStatus { get; private set; }
         public string MoonStatus { get; private set; }
+
+        private const int MoonTextureSize = 128;
+        private const float MoonDiscRadiusFraction = 0.78f;
+        private const float MoonPhaseRegenThresholdDegrees = 0.5f;
 
         private Transform sunTransform;
         private Transform moonTransform;
@@ -43,6 +55,9 @@ namespace GlassGlobe
         private readonly List<CelestialMarker> foregroundMarkers = new List<CelestialMarker>();
         private float lastLogTime;
         private Vector3 lastCameraPosition;
+        private Texture2D moonPhaseTexture;
+        private Color32[] moonPhasePixels;
+        private float lastPhaseAngleDegrees = float.NaN;
 
         private sealed class CelestialMarker
         {
@@ -87,12 +102,22 @@ namespace GlassGlobe
             MoonStatus = "Initializing";
 
             sunMaterial = EnsureMaterial(sunMaterial, BuildSunTexture());
-            moonMaterial = EnsureMaterial(moonMaterial, BuildMoonTexture());
+            moonMaterial = EnsureMaterial(moonMaterial, null);
+            planetMaterial = EnsureMaterial(planetMaterial, BuildPlanetTexture());
 
             sunTransform = BuildSprite("Sun Sprite", sunMaterial, out sunRenderer);
             moonTransform = BuildSprite("Moon Sprite", moonMaterial, out moonRenderer);
             BuildForegroundMarkers();
             ApplyVisibility();
+        }
+
+        private void OnDestroy()
+        {
+            if (moonPhaseTexture != null)
+            {
+                Destroy(moonPhaseTexture);
+                moonPhaseTexture = null;
+            }
         }
 
         public void SetSunVisible(bool value)
@@ -109,11 +134,6 @@ namespace GlassGlobe
 
         private void LateUpdate()
         {
-            if (!SunVisible && !MoonVisible)
-            {
-                return;
-            }
-
             Camera camera = ResolveCamera();
             if (camera == null)
             {
@@ -131,10 +151,10 @@ namespace GlassGlobe
             float sunAltitude = 0f;
             float moonAzimuth = 0f;
             float moonAltitude = 0f;
+            Vector3 sunEquatorial = SkyMath.SunEquatorialDirection();
 
             if (SunVisible)
             {
-                Vector3 sunEquatorial = SkyMath.SunEquatorialDirection();
                 PlaceSprite(sunTransform, sunEquatorial, lstDegrees, latitude, frame, cameraPosition, sunAngularDegrees);
                 SkyMath.EnuToAzimuthAltitude(
                     SkyMath.EquatorialToEnu(sunEquatorial, lstDegrees, latitude), out sunAzimuth, out sunAltitude);
@@ -145,14 +165,21 @@ namespace GlassGlobe
             {
                 Vector3 moonEquatorial = SkyMath.MoonTopocentricEquatorialDirection(lstDegrees, latitude);
                 PlaceSprite(moonTransform, moonEquatorial, lstDegrees, latitude, frame, cameraPosition, moonAngularDegrees);
+                float illuminatedFraction = UpdateMoonPhase(sunEquatorial, moonEquatorial, lstDegrees, latitude, frame);
                 SkyMath.EnuToAzimuthAltitude(
                     SkyMath.EquatorialToEnu(moonEquatorial, lstDegrees, latitude), out moonAzimuth, out moonAltitude);
-                MoonStatus = FormatBodyStatus(moonAzimuth, moonAltitude);
+                MoonStatus = string.Format(
+                    "{0} {1:0}% illuminated",
+                    FormatBodyStatus(moonAzimuth, moonAltitude),
+                    illuminatedFraction * 100f);
             }
 
+            // Star and planet markers have no visibility toggle of their own,
+            // so they must keep tracking the sky even while the Sun and Moon
+            // sprites are hidden.
             UpdateForegroundMarkers(lstDegrees, latitude, frame, cameraPosition);
 
-            if (Time.time - lastLogTime > 5f)
+            if (verboseLogging && Time.time - lastLogTime > 5f)
             {
                 lastLogTime = Time.time;
                 Debug.Log(string.Format(
@@ -167,10 +194,115 @@ namespace GlassGlobe
         private static string FormatBodyStatus(float azimuth, float altitude)
         {
             string placement = altitude < 0f ? "Visible through Earth" : "Visible above horizon";
-            return string.Format("{0}. Azimuth {1:0} deg, altitude {2:0} deg", placement, azimuth, altitude);
+            return string.Format("{0}. Azimuth {1:0} deg, altitude {2:0} deg.", placement, azimuth, altitude);
         }
 
-        public bool TryGetPointedBody(Vector3 worldDirection, out string bodyName)
+        /// <summary>
+        /// Regenerates the Moon's phase texture when the terminator has moved
+        /// and rolls the sprite so the bright limb points at the Sun. Returns
+        /// the illuminated fraction.
+        /// </summary>
+        private float UpdateMoonPhase(
+            Vector3 sunEquatorial,
+            Vector3 moonEquatorial,
+            float lstDegrees,
+            float latitude,
+            EarthMath.LocalFrame frame)
+        {
+            float cosElongation = Vector3.Dot(sunEquatorial.normalized, moonEquatorial.normalized);
+            float phaseAngleDegrees = 180f - Mathf.Acos(Mathf.Clamp(cosElongation, -1f, 1f)) * Mathf.Rad2Deg;
+            float illuminatedFraction = (1f + Mathf.Cos(phaseAngleDegrees * Mathf.Deg2Rad)) * 0.5f;
+
+            if (moonMaterial != null &&
+                (moonPhaseTexture == null ||
+                 float.IsNaN(lastPhaseAngleDegrees) ||
+                 Mathf.Abs(phaseAngleDegrees - lastPhaseAngleDegrees) > MoonPhaseRegenThresholdDegrees))
+            {
+                RegenerateMoonPhaseTexture(phaseAngleDegrees);
+                lastPhaseAngleDegrees = phaseAngleDegrees;
+            }
+
+            // Roll the billboard so texture +x (the lit side) lines up with the
+            // Sun's direction projected onto the sprite plane.
+            if (moonTransform != null)
+            {
+                Vector3 sunWorld = SkyMath.EquatorialToWorld(sunEquatorial, lstDegrees, latitude, frame);
+                Quaternion baseRotation = moonTransform.rotation;
+                Vector3 spriteRight = baseRotation * Vector3.right;
+                Vector3 spriteUp = baseRotation * Vector3.up;
+                float eastComponent = Vector3.Dot(sunWorld, spriteRight);
+                float northComponent = Vector3.Dot(sunWorld, spriteUp);
+                if (Mathf.Abs(eastComponent) > 0.0001f || Mathf.Abs(northComponent) > 0.0001f)
+                {
+                    float limbRollDegrees = Mathf.Atan2(northComponent, eastComponent) * Mathf.Rad2Deg;
+                    moonTransform.rotation = baseRotation * Quaternion.AngleAxis(limbRollDegrees, Vector3.forward);
+                }
+            }
+
+            return illuminatedFraction;
+        }
+
+        private void RegenerateMoonPhaseTexture(float phaseAngleDegrees)
+        {
+            if (moonPhaseTexture == null)
+            {
+                moonPhaseTexture = new Texture2D(MoonTextureSize, MoonTextureSize, TextureFormat.RGBA32, false);
+                moonPhaseTexture.name = "GlassGlobe Moon Phase";
+                moonPhaseTexture.wrapMode = TextureWrapMode.Clamp;
+            }
+
+            if (moonPhasePixels == null)
+            {
+                moonPhasePixels = new Color32[MoonTextureSize * MoonTextureSize];
+            }
+
+            float sinPhase = Mathf.Sin(phaseAngleDegrees * Mathf.Deg2Rad);
+            float cosPhase = Mathf.Cos(phaseAngleDegrees * Mathf.Deg2Rad);
+            Color litColor = new Color(0.93f, 0.95f, 1f, 1f);
+            Color darkColor = new Color(0.22f, 0.25f, 0.32f, 0.30f);
+            Color glowColor = new Color(0.75f, 0.8f, 0.95f, 1f);
+
+            float half = (MoonTextureSize - 1) * 0.5f;
+            float discRadiusPixels = half * MoonDiscRadiusFraction;
+            for (int y = 0; y < MoonTextureSize; y++)
+            {
+                for (int x = 0; x < MoonTextureSize; x++)
+                {
+                    float nx = (x - half) / discRadiusPixels;
+                    float ny = (y - half) / discRadiusPixels;
+                    float radiusSquared = nx * nx + ny * ny;
+                    Color color;
+                    if (radiusSquared <= 1f)
+                    {
+                        // Sphere shading: lit where the surface normal faces the
+                        // Sun at (sin phase, 0, cos phase) in sprite space.
+                        float nz = Mathf.Sqrt(1f - radiusSquared);
+                        float litDot = nx * sinPhase + nz * cosPhase;
+                        float litT = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(-0.12f, 0.12f, litDot));
+                        color = Color.Lerp(darkColor, litColor, litT);
+
+                        // Soften the disc rim so the edge is not aliased.
+                        float radius = Mathf.Sqrt(radiusSquared);
+                        color.a *= Mathf.Clamp01((1f - radius) / 0.06f);
+                    }
+                    else
+                    {
+                        float radius = Mathf.Sqrt(radiusSquared) * MoonDiscRadiusFraction;
+                        float glowT = Mathf.Clamp01((1f - radius) / (1f - MoonDiscRadiusFraction));
+                        color = glowColor;
+                        color.a = Mathf.Pow(glowT, 2.5f) * 0.25f;
+                    }
+
+                    moonPhasePixels[y * MoonTextureSize + x] = color;
+                }
+            }
+
+            moonPhaseTexture.SetPixels32(moonPhasePixels);
+            moonPhaseTexture.Apply(false);
+            moonMaterial.mainTexture = moonPhaseTexture;
+        }
+
+        public bool TryGetPointedBody(Vector3 worldDirection, out string bodyName, out float angleDegrees)
         {
             bodyName = null;
             float closestAngle = float.MaxValue;
@@ -183,6 +315,7 @@ namespace GlassGlobe
                 TrySelect(marker.Name, marker.Transform, true, marker.AngularDegrees, worldDirection, lastCameraPosition, ref closestAngle, ref bodyName);
             }
 
+            angleDegrees = closestAngle;
             return bodyName != null;
         }
 
@@ -222,7 +355,7 @@ namespace GlassGlobe
         private void AddForegroundMarker(string markerName, Vector3 equatorialDirection, float angularDegrees, bool isPlanet)
         {
             MeshRenderer markerRenderer;
-            Transform markerTransform = BuildSprite(markerName + " Marker", isPlanet ? moonMaterial : sunMaterial, out markerRenderer);
+            Transform markerTransform = BuildSprite(markerName + " Marker", isPlanet ? planetMaterial : sunMaterial, out markerRenderer);
             foregroundMarkers.Add(new CelestialMarker
             {
                 Name = markerName,
@@ -324,7 +457,7 @@ namespace GlassGlobe
             spriteObject.transform.SetParent(transform, false);
 
             MeshFilter meshFilter = spriteObject.AddComponent<MeshFilter>();
-            meshFilter.sharedMesh = BuildQuadMesh(name + " Quad");
+            meshFilter.sharedMesh = GlassGlobeVisuals.BuildQuadMesh(name + " Quad");
 
             renderer = spriteObject.AddComponent<MeshRenderer>();
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -346,7 +479,7 @@ namespace GlassGlobe
                 material = new Material(shader);
             }
 
-            if (material.mainTexture == null)
+            if (material.mainTexture == null && texture != null)
             {
                 material.mainTexture = texture;
             }
@@ -356,7 +489,7 @@ namespace GlassGlobe
 
         private static Texture2D BuildSunTexture()
         {
-            return BuildRadialTexture(
+            return GlassGlobeVisuals.BuildRadialTexture(
                 128,
                 new Color(1f, 1f, 0.92f, 1f),
                 new Color(1f, 0.85f, 0.55f, 0.55f),
@@ -364,69 +497,14 @@ namespace GlassGlobe
                 2.2f);
         }
 
-        private static Texture2D BuildMoonTexture()
+        private static Texture2D BuildPlanetTexture()
         {
-            return BuildRadialTexture(
-                128,
-                new Color(0.93f, 0.95f, 1f, 1f),
-                new Color(0.75f, 0.8f, 0.9f, 0.25f),
-                0.3f,
-                5f);
-        }
-
-        private static Texture2D BuildRadialTexture(int size, Color core, Color glow, float coreRadius, float falloffPower)
-        {
-            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            texture.wrapMode = TextureWrapMode.Clamp;
-            float half = (size - 1) * 0.5f;
-
-            for (int y = 0; y < size; y++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    float distance = Mathf.Sqrt((x - half) * (x - half) + (y - half) * (y - half)) / half;
-                    Color color;
-                    if (distance <= coreRadius)
-                    {
-                        color = core;
-                    }
-                    else
-                    {
-                        float t = Mathf.Clamp01((distance - coreRadius) / Mathf.Max(0.0001f, 1f - coreRadius));
-                        float alpha = Mathf.Pow(1f - t, falloffPower);
-                        color = Color.Lerp(glow, core, alpha * 0.5f);
-                        color.a = glow.a * alpha;
-                    }
-
-                    texture.SetPixel(x, y, color);
-                }
-            }
-
-            texture.Apply();
-            return texture;
-        }
-
-        private static Mesh BuildQuadMesh(string name)
-        {
-            Mesh mesh = new Mesh();
-            mesh.name = name;
-            mesh.vertices = new[]
-            {
-                new Vector3(-0.5f, -0.5f, 0f),
-                new Vector3(0.5f, -0.5f, 0f),
-                new Vector3(-0.5f, 0.5f, 0f),
-                new Vector3(0.5f, 0.5f, 0f)
-            };
-            mesh.uv = new[]
-            {
-                new Vector2(0f, 0f),
-                new Vector2(1f, 0f),
-                new Vector2(0f, 1f),
-                new Vector2(1f, 1f)
-            };
-            mesh.triangles = new[] { 0, 2, 1, 1, 2, 3 };
-            mesh.RecalculateBounds();
-            return mesh;
+            return GlassGlobeVisuals.BuildRadialTexture(
+                64,
+                new Color(1f, 0.97f, 0.88f, 1f),
+                new Color(0.85f, 0.82f, 0.7f, 0.35f),
+                0.22f,
+                3.5f);
         }
     }
 }
