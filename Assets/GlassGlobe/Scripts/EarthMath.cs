@@ -164,6 +164,39 @@ namespace GlassGlobe
             return true;
         }
 
+        /// <summary>
+        /// Near clip plane for the look-through-the-Earth trick: clip just past
+        /// the near-side surface so only the far side of the globe renders.
+        /// Falls back to a small near clip when the view ray misses the sphere.
+        /// </summary>
+        public static float CalculateThroughEarthNearClip(
+            Vector3 observerPosition,
+            Vector3 viewDirection,
+            Vector3 center,
+            float radius)
+        {
+            float nearDistance;
+            float farDistance;
+            Ray viewRay = new Ray(observerPosition, viewDirection);
+            if (!RaySphereIntersections(viewRay, center, radius, out nearDistance, out farDistance))
+            {
+                return 0.05f;
+            }
+
+            float intersectionDepth = Mathf.Max(0f, farDistance - nearDistance);
+            float clipPadding = Mathf.Min(0.35f, intersectionDepth * 0.2f);
+            return Mathf.Clamp(nearDistance + clipPadding, 0.01f, Mathf.Max(0.02f, farDistance - 0.05f));
+        }
+
+        /// <summary>
+        /// Far clip floor that keeps both the far side of the globe and the
+        /// most distant sky sphere (plus sprite overhang) inside the frustum.
+        /// </summary>
+        public static float CalculateSkyFarClip(float globeRadius, float maxSkyRadius)
+        {
+            return Mathf.Max(globeRadius * 8f, maxSkyRadius * 1.15f);
+        }
+
         public static List<Vector3> BuildGreatCircleArc(
             GeoCoordinate start,
             GeoCoordinate end,

@@ -34,6 +34,8 @@ namespace GlassGlobe
             errors += Require(FindFirstObjectByType<GlobeGridRenderer>() != null, "GlassGlobe validation failed: missing low-poly GlobeGridRenderer.");
             errors += Require(FindFirstObjectByType<CountryLabelController>() != null, "GlassGlobe validation failed: missing CountryLabelController.");
             errors += Require(FindFirstObjectByType<WeatherOverlay>() != null, "GlassGlobe validation failed: missing WeatherOverlay.");
+            errors += Require(FindFirstObjectByType<SatelliteOverlay>() != null, "GlassGlobe validation failed: missing SatelliteOverlay.");
+            errors += Require(FindFirstObjectByType<EarthquakeOverlay>() != null, "GlassGlobe validation failed: missing EarthquakeOverlay.");
             errors += Require(FindFirstObjectByType<GlassGlobeReticle>() != null, "GlassGlobe validation failed: missing center reticle.");
 
             FarSideRaycaster raycaster = FindFirstObjectByType<FarSideRaycaster>();

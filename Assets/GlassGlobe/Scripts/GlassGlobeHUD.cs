@@ -165,7 +165,7 @@ namespace GlassGlobe
             GUILayout.Label(BuildReadout(), readoutStyle);
             GUILayout.Space(8f);
 
-            DrawSlider("Tilt", 0f, 72f, GetTilt(), SetTilt);
+            DrawSlider("Tilt", 0f, PhonePoseSimulator.MaxTiltDegrees, GetTilt(), SetTilt);
             DrawSlider("Heading", 0f, 360f, GetHeading(), SetHeading);
             DrawSlider("FOV", 20f, 75f, GetFov(), SetFov);
 
@@ -501,7 +501,7 @@ namespace GlassGlobe
                 case TouchSlider.Tilt:
                     rect = tiltTouchRect;
                     min = 0f;
-                    max = 72f;
+                    max = PhonePoseSimulator.MaxTiltDegrees;
                     break;
                 case TouchSlider.Heading:
                     rect = headingTouchRect;
@@ -561,18 +561,7 @@ namespace GlassGlobe
 
         private static float GetMobileUiScale()
         {
-            if (!Application.isMobilePlatform)
-            {
-                return 1f;
-            }
-
-            if (Screen.dpi > 0f)
-            {
-                return Mathf.Clamp(Screen.dpi / 160f, 1f, 4f);
-            }
-
-            float shortestSide = Mathf.Min(Screen.width, Screen.height);
-            return Mathf.Clamp(shortestSide / 360f, 1f, 4f);
+            return GlassGlobeUi.GetMobileUiScale();
         }
 
         private float GetTilt()

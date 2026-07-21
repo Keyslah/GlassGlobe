@@ -17,6 +17,8 @@ namespace GlassGlobe
         public PhonePoseSensors poseSensors;
         public PhonePoseSimulator simulator;
 
+        public bool verboseLogging = false;
+
         [Tooltip("Assigned at scene build time so the galaxy shader is not stripped from the player build.")]
         public Material galaxyMaterial;
 
@@ -98,7 +100,7 @@ namespace GlassGlobe
                 azimuth,
                 altitude);
 
-            if (Time.time - lastLogTime > 5f)
+            if (verboseLogging && Time.time - lastLogTime > 5f)
             {
                 lastLogTime = Time.time;
                 Debug.Log(string.Format(
@@ -190,66 +192,28 @@ namespace GlassGlobe
 
         private Mesh BuildGalacticSphereMesh()
         {
-            int lonCount = Mathf.Max(8, longitudeSegments);
-            int latCount = Mathf.Max(4, latitudeSegments);
-            int vertexCount = (latCount + 1) * (lonCount + 1);
-            Vector3[] vertices = new Vector3[vertexCount];
-            Vector2[] uvs = new Vector2[vertexCount];
-            int[] triangles = new int[latCount * lonCount * 6];
-
-            int vertexIndex = 0;
-            for (int latIndex = 0; latIndex <= latCount; latIndex++)
-            {
-                float v = latIndex / (float)latCount;
-                float galacticLatitude = Mathf.Lerp(-90f, 90f, v) * Mathf.Deg2Rad;
-                float cosB = Mathf.Cos(galacticLatitude);
-                float sinB = Mathf.Sin(galacticLatitude);
-
-                for (int lonIndex = 0; lonIndex <= lonCount; lonIndex++)
+            return GlassGlobeVisuals.BuildLatLonSphereMesh(
+                "GlassGlobe Milky Way Sphere",
+                longitudeSegments,
+                latitudeSegments,
+                90f,
+                false,
+                delegate (float galacticLatitude, float galacticLongitude, float u, float v, out Vector3 position, out Vector2 uv)
                 {
-                    float u = lonIndex / (float)lonCount;
-                    float galacticLongitude = Mathf.Lerp(-180f, 180f, u);
+                    float b = galacticLatitude * Mathf.Deg2Rad;
                     float l = galacticLongitude * Mathf.Deg2Rad;
+                    float cosB = Mathf.Cos(b);
 
                     Vector3 equatorial =
                         galacticXEquatorial * (cosB * Mathf.Cos(l)) +
                         galacticYEquatorial * (cosB * Mathf.Sin(l)) +
-                        galacticZEquatorial * sinB;
+                        galacticZEquatorial * Mathf.Sin(b);
 
                     // Negated x matches the globe's mirrored embedding so the
                     // sky is truthful through the same left-handed camera.
-                    vertices[vertexIndex] = new Vector3(-equatorial.x, equatorial.y, equatorial.z);
-                    uvs[vertexIndex] = new Vector2(0.5f - galacticLongitude / 360f, v);
-                    vertexIndex++;
-                }
-            }
-
-            int triangleIndex = 0;
-            int stride = lonCount + 1;
-            for (int latIndex = 0; latIndex < latCount; latIndex++)
-            {
-                for (int lonIndex = 0; lonIndex < lonCount; lonIndex++)
-                {
-                    int current = latIndex * stride + lonIndex;
-                    int next = current + stride;
-
-                    triangles[triangleIndex++] = current;
-                    triangles[triangleIndex++] = next;
-                    triangles[triangleIndex++] = current + 1;
-
-                    triangles[triangleIndex++] = current + 1;
-                    triangles[triangleIndex++] = next;
-                    triangles[triangleIndex++] = next + 1;
-                }
-            }
-
-            Mesh mesh = new Mesh();
-            mesh.name = "GlassGlobe Milky Way Sphere";
-            mesh.vertices = vertices;
-            mesh.uv = uvs;
-            mesh.triangles = triangles;
-            mesh.RecalculateBounds();
-            return mesh;
+                    position = new Vector3(-equatorial.x, equatorial.y, equatorial.z);
+                    uv = new Vector2(0.5f - galacticLongitude / 360f, v);
+                });
         }
     }
 }

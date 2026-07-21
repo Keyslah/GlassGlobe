@@ -17,6 +17,8 @@ namespace GlassGlobe
         public float celestialNameFadeSeconds = 0.65f;
 
         private SunMoonBackground celestialBackground;
+        private SatelliteOverlay satelliteOverlay;
+        private EarthquakeOverlay earthquakeOverlay;
         private GUIStyle nameStyle;
         private string pointedBodyName;
         private string popupBodyName;
@@ -52,10 +54,20 @@ namespace GlassGlobe
                 celestialBackground = FindFirstObjectByType<SunMoonBackground>();
             }
 
+            if (satelliteOverlay == null)
+            {
+                satelliteOverlay = FindFirstObjectByType<SatelliteOverlay>();
+            }
+
+            if (earthquakeOverlay == null)
+            {
+                earthquakeOverlay = FindFirstObjectByType<EarthquakeOverlay>();
+            }
+
             Camera camera = Camera.main;
             string bodyName = null;
-            bool hasPointedBody = celestialBackground != null && camera != null &&
-                celestialBackground.TryGetPointedBody(camera.transform.forward, out bodyName);
+            bool hasPointedBody = camera != null &&
+                TryGetNearestPointedTarget(camera, out bodyName);
 
             if (hasPointedBody)
             {
@@ -110,6 +122,47 @@ namespace GlassGlobe
             GUI.color = new Color(1f, 1f, 1f, alpha);
             GUI.Label(labelRect, popupBodyName, nameStyle);
             GUI.color = previousColor;
+        }
+
+        /// <summary>
+        /// Asks every naming provider (celestial bodies, satellites,
+        /// earthquakes) what sits under the reticle and keeps the closest by
+        /// angle.
+        /// </summary>
+        private bool TryGetNearestPointedTarget(Camera camera, out string label)
+        {
+            label = null;
+            float bestAngle = float.MaxValue;
+            Vector3 forward = camera.transform.forward;
+            Vector3 cameraPosition = camera.transform.position;
+
+            string candidate;
+            float angle;
+            if (celestialBackground != null &&
+                celestialBackground.TryGetPointedBody(forward, out candidate, out angle) &&
+                angle < bestAngle)
+            {
+                bestAngle = angle;
+                label = candidate;
+            }
+
+            if (satelliteOverlay != null &&
+                satelliteOverlay.TryGetPointedTarget(forward, cameraPosition, out candidate, out angle) &&
+                angle < bestAngle)
+            {
+                bestAngle = angle;
+                label = candidate;
+            }
+
+            if (earthquakeOverlay != null &&
+                earthquakeOverlay.TryGetPointedTarget(forward, cameraPosition, out candidate, out angle) &&
+                angle < bestAngle)
+            {
+                bestAngle = angle;
+                label = candidate;
+            }
+
+            return label != null;
         }
 
         private static void DrawRect(float x, float y, float width, float height)

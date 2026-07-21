@@ -313,72 +313,14 @@ namespace GlassGlobe
             shellObject.transform.position = center;
 
             MeshFilter meshFilter = shellObject.AddComponent<MeshFilter>();
-            meshFilter.sharedMesh = BuildShellMesh(name + " Mesh", radius, withNormals);
+            meshFilter.sharedMesh = GlassGlobeVisuals.BuildGeoShellMesh(
+                name + " Mesh", radius, longitudeSegments, latitudeSegments, MaxShellLatitude, withNormals);
 
             MeshRenderer shellRenderer = shellObject.AddComponent<MeshRenderer>();
             shellRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             shellRenderer.receiveShadows = false;
             shellRenderer.sharedMaterial = material;
             return shellRenderer;
-        }
-
-        private Mesh BuildShellMesh(string name, float radius, bool withNormals)
-        {
-            int lonCount = Mathf.Max(8, longitudeSegments);
-            int latCount = Mathf.Max(4, latitudeSegments);
-            int vertexCount = (latCount + 1) * (lonCount + 1);
-            Vector3[] vertices = new Vector3[vertexCount];
-            Vector2[] uvs = new Vector2[vertexCount];
-            int[] triangles = new int[latCount * lonCount * 6];
-
-            int vertexIndex = 0;
-            for (int latIndex = 0; latIndex <= latCount; latIndex++)
-            {
-                float latitude = Mathf.Lerp(-MaxShellLatitude, MaxShellLatitude, latIndex / (float)latCount);
-                for (int lonIndex = 0; lonIndex <= lonCount; lonIndex++)
-                {
-                    float u = lonIndex / (float)lonCount;
-                    float longitude = Mathf.Lerp(-180f, 180f, u);
-                    vertices[vertexIndex] = EarthMath.GeoToPoint(
-                        new GeoCoordinate(latitude, longitude), radius, Vector3.zero);
-                    uvs[vertexIndex] = new Vector2(u, (latitude + 90f) / 180f);
-                    vertexIndex++;
-                }
-            }
-
-            int triangleIndex = 0;
-            int stride = lonCount + 1;
-            for (int latIndex = 0; latIndex < latCount; latIndex++)
-            {
-                for (int lonIndex = 0; lonIndex < lonCount; lonIndex++)
-                {
-                    int current = latIndex * stride + lonIndex;
-                    int next = current + stride;
-
-                    triangles[triangleIndex++] = current;
-                    triangles[triangleIndex++] = next;
-                    triangles[triangleIndex++] = current + 1;
-
-                    triangles[triangleIndex++] = current + 1;
-                    triangles[triangleIndex++] = next;
-                    triangles[triangleIndex++] = next + 1;
-                }
-            }
-
-            Mesh mesh = new Mesh();
-            mesh.name = name;
-            mesh.vertices = vertices;
-            mesh.uv = uvs;
-            mesh.triangles = triangles;
-            if (withNormals)
-            {
-                // Normal-mapped, lit shells (the stylized ocean) need a smooth
-                // per-vertex basis; the flat art shells skip this to stay lean.
-                mesh.RecalculateNormals();
-                mesh.RecalculateTangents();
-            }
-            mesh.RecalculateBounds();
-            return mesh;
         }
     }
 }

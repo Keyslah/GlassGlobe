@@ -37,6 +37,34 @@ namespace GlassGlobe
             get { return outlines; }
         }
 
+        /// <summary>
+        /// Per-outline data derived from the ring points: unit vectors for the
+        /// spherical containment test, a bounding cap for cheap rejection, and
+        /// the label direction for the nearest-region fallback.
+        /// </summary>
+        private sealed class OutlineCache
+        {
+            public Vector3[] UnitVectors;
+            public Vector3 CapCenter;
+            public float CapCosRadius;
+            public Vector3 LabelUnit;
+        }
+
+        private sealed class GeneratedLine
+        {
+            public LineRenderer Line;
+            public bool IsCountry;
+            public float BaseWidth;
+        }
+
+        private OutlineCache[] outlineCaches;
+        private List<GeoOutline> cachedOutlinesSource;
+        private readonly List<GeneratedLine> generatedLines = new List<GeneratedLine>();
+        private readonly Dictionary<uint, Material> lineMaterialCache = new Dictionary<uint, Material>();
+        private int regionCacheFrame = -1;
+        private GeoCoordinate regionCacheCoordinate;
+        private string regionCacheResult;
+
         private void Reset()
         {
             globe = FindFirstObjectByType<GlobeRenderer>();
@@ -132,7 +160,16 @@ namespace GlassGlobe
                 Color lineColor = outline.isCountry && overrideCountryOutlineColor
                     ? countryOutlineColor
                     : outline.color;
-                lineRenderer.material = CreateDefaultBorderMaterial(lineColor);
+                // One shared material per color: restyling swaps or edits the
+                // shared instance instead of leaking a material per outline.
+                lineRenderer.sharedMaterial = GetSharedLineMaterial(lineColor);
+
+                generatedLines.Add(new GeneratedLine
+                {
+                    Line = lineRenderer,
+                    IsCountry = outline.isCountry,
+                    BaseWidth = outline.lineWidth
+                });
             }
         }
 
@@ -140,13 +177,40 @@ namespace GlassGlobe
         {
             countryOutlineColor = color;
             overrideCountryOutlineColor = true;
-            RebuildBorders();
+            if (!HasLineTracking())
+            {
+                RebuildBorders();
+                return;
+            }
+
+            Material material = GetSharedLineMaterial(color);
+            for (int index = 0; index < generatedLines.Count; index++)
+            {
+                GeneratedLine entry = generatedLines[index];
+                if (entry.IsCountry)
+                {
+                    entry.Line.sharedMaterial = material;
+                }
+            }
         }
 
         public void SetCountryOutlineThickness(float thickness)
         {
             countryOutlineThickness = Mathf.Clamp(thickness, 0.25f, 3f);
-            RebuildBorders();
+            if (!HasLineTracking())
+            {
+                RebuildBorders();
+                return;
+            }
+
+            for (int index = 0; index < generatedLines.Count; index++)
+            {
+                GeneratedLine entry = generatedLines[index];
+                if (entry.IsCountry)
+                {
+                    entry.Line.widthMultiplier = Mathf.Max(0.005f, entry.BaseWidth * countryOutlineThickness);
+                }
+            }
         }
 
         public string GetRegionForCoordinate(GeoCoordinate coordinate)
@@ -156,35 +220,234 @@ namespace GlassGlobe
                 return "No sample data";
             }
 
-            GeoOutline nearestOutline = null;
-            float nearestDistance = float.MaxValue;
-
-            foreach (GeoOutline outline in outlines)
+            // The HUD banner and readout each query once per OnGUI event, so
+            // memoize per frame; the far-side point barely moves between calls.
+            if (regionCacheFrame == Time.frameCount &&
+                regionCacheResult != null &&
+                Mathf.Abs(coordinate.Latitude - regionCacheCoordinate.Latitude) < 0.005f &&
+                Mathf.Abs(Mathf.DeltaAngle(coordinate.Longitude, regionCacheCoordinate.Longitude)) < 0.005f)
             {
+                return regionCacheResult;
+            }
+
+            EnsureOutlineCaches();
+            Vector3 pointUnit = EarthMath.GeoToUnitVector(coordinate);
+            GeoOutline nearestOutline = null;
+            float nearestDot = -2f;
+            string result = null;
+
+            for (int index = 0; index < outlines.Count; index++)
+            {
+                GeoOutline outline = outlines[index];
+                OutlineCache cache = outlineCaches[index];
+                if (outline == null || cache == null)
+                {
+                    continue;
+                }
+
+                if (outline.isCountry &&
+                    Vector3.Dot(pointUnit, cache.CapCenter) >= cache.CapCosRadius &&
+                    ContainsOnSphere(pointUnit, cache.UnitVectors))
+                {
+                    result = outline.name;
+                    break;
+                }
+
+                float labelDot = Vector3.Dot(pointUnit, cache.LabelUnit);
+                if (labelDot > nearestDot)
+                {
+                    nearestDot = labelDot;
+                    nearestOutline = outline;
+                }
+            }
+
+            if (result == null)
+            {
+                result = nearestOutline == null
+                    ? "Unknown"
+                    : string.Format("Nearest: {0}", nearestOutline.name);
+            }
+
+            regionCacheFrame = Time.frameCount;
+            regionCacheCoordinate = coordinate;
+            regionCacheResult = result;
+            return result;
+        }
+
+        /// <summary>
+        /// Point-in-polygon on the sphere via the winding of vertex azimuths in
+        /// the tangent plane at the point. Unlike a flat lat/lon test this is
+        /// correct for rings that cross the antimeridian (Russia, Fiji) and
+        /// rings that enclose a pole (Antarctica).
+        /// </summary>
+        public static bool ContainsOnSphere(GeoCoordinate point, IList<GeoCoordinate> ring)
+        {
+            if (ring == null || ring.Count < 3)
+            {
+                return false;
+            }
+
+            Vector3[] units = new Vector3[ring.Count];
+            for (int index = 0; index < ring.Count; index++)
+            {
+                units[index] = EarthMath.GeoToUnitVector(ring[index]);
+            }
+
+            return ContainsOnSphere(EarthMath.GeoToUnitVector(point), units);
+        }
+
+        public static bool ContainsOnSphere(Vector3 pointUnit, Vector3[] ringUnitVectors)
+        {
+            if (ringUnitVectors == null || ringUnitVectors.Length < 3)
+            {
+                return false;
+            }
+
+            // A closed ring encircles both its own region and the antipodal
+            // region, so the tangent-plane winding alone reports true at the
+            // antipode. Country rings are far smaller than a hemisphere, so
+            // reject points in the hemisphere opposite the ring centroid before
+            // winding. (Ill-defined centroid, e.g. a near-global ring, skips
+            // this guard and relies on winding.)
+            Vector3 centroid = Vector3.zero;
+            for (int index = 0; index < ringUnitVectors.Length; index++)
+            {
+                centroid += ringUnitVectors[index];
+            }
+
+            if (centroid.sqrMagnitude > 0.000001f &&
+                Vector3.Dot(pointUnit, centroid.normalized) <= 0f)
+            {
+                return false;
+            }
+
+            Vector3 east = Vector3.Cross(Vector3.up, pointUnit);
+            if (east.sqrMagnitude < 0.000001f)
+            {
+                east = Vector3.Cross(Vector3.forward, pointUnit);
+            }
+
+            east.Normalize();
+            Vector3 north = Vector3.Cross(pointUnit, east).normalized;
+
+            float totalDegrees = 0f;
+            float previousAzimuth = float.NaN;
+            int count = ringUnitVectors.Length;
+            for (int step = 0; step <= count; step++)
+            {
+                Vector3 vertex = ringUnitVectors[step % count];
+                float eastComponent = Vector3.Dot(vertex, east);
+                float northComponent = Vector3.Dot(vertex, north);
+                if (eastComponent * eastComponent + northComponent * northComponent < 1e-10f)
+                {
+                    // Vertex at the query point or its antipode has no azimuth.
+                    continue;
+                }
+
+                float azimuth = Mathf.Atan2(eastComponent, northComponent) * Mathf.Rad2Deg;
+                if (!float.IsNaN(previousAzimuth))
+                {
+                    totalDegrees += Mathf.DeltaAngle(previousAzimuth, azimuth);
+                }
+
+                previousAzimuth = azimuth;
+            }
+
+            // Inside: azimuths wind a full turn around the point. Outside: they
+            // sum to roughly zero.
+            return Mathf.Abs(totalDegrees) > 180f;
+        }
+
+        private void EnsureOutlineCaches()
+        {
+            if (outlineCaches != null &&
+                cachedOutlinesSource == outlines &&
+                outlineCaches.Length == outlines.Count)
+            {
+                return;
+            }
+
+            outlineCaches = new OutlineCache[outlines.Count];
+            for (int index = 0; index < outlines.Count; index++)
+            {
+                GeoOutline outline = outlines[index];
                 if (outline == null || outline.points == null || outline.points.Count < 3)
                 {
                     continue;
                 }
 
-                if (outline.isCountry && ContainsFlatLatLon(coordinate, outline.points))
+                OutlineCache cache = new OutlineCache();
+                cache.UnitVectors = new Vector3[outline.points.Count];
+                Vector3 sum = Vector3.zero;
+                for (int pointIndex = 0; pointIndex < outline.points.Count; pointIndex++)
                 {
-                    return outline.name;
+                    Vector3 unit = EarthMath.GeoToUnitVector(outline.points[pointIndex]);
+                    cache.UnitVectors[pointIndex] = unit;
+                    sum += unit;
                 }
 
-                float distance = EarthMath.AngularDistanceDegrees(coordinate, outline.labelCoordinate);
-                if (distance < nearestDistance)
+                if (sum.sqrMagnitude < 0.000001f)
                 {
-                    nearestDistance = distance;
-                    nearestOutline = outline;
+                    // Ring wraps most of the sphere; the cap cannot reject.
+                    cache.CapCenter = Vector3.up;
+                    cache.CapCosRadius = -1f;
                 }
+                else
+                {
+                    cache.CapCenter = sum.normalized;
+                    float minDot = 1f;
+                    for (int pointIndex = 0; pointIndex < cache.UnitVectors.Length; pointIndex++)
+                    {
+                        float dot = Vector3.Dot(cache.CapCenter, cache.UnitVectors[pointIndex]);
+                        if (dot < minDot)
+                        {
+                            minDot = dot;
+                        }
+                    }
+
+                    // Small margin so points just outside the vertex hull still
+                    // reach the exact test.
+                    cache.CapCosRadius = Mathf.Max(-1f, minDot - 0.01f);
+                }
+
+                cache.LabelUnit = EarthMath.GeoToUnitVector(outline.labelCoordinate);
+                outlineCaches[index] = cache;
             }
 
-            if (nearestOutline == null)
+            cachedOutlinesSource = outlines;
+        }
+
+        private bool HasLineTracking()
+        {
+            if (generatedLines.Count == 0)
             {
-                return "Unknown";
+                return false;
             }
 
-            return string.Format("Nearest: {0}", nearestOutline.name);
+            for (int index = 0; index < generatedLines.Count; index++)
+            {
+                if (generatedLines[index].Line == null)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private Material GetSharedLineMaterial(Color color)
+        {
+            Color32 color32 = color;
+            uint key = (uint)(color32.r | (color32.g << 8) | (color32.b << 16) | (color32.a << 24));
+            Material material;
+            if (lineMaterialCache.TryGetValue(key, out material) && material != null)
+            {
+                return material;
+            }
+
+            material = CreateDefaultBorderMaterial(color);
+            lineMaterialCache[key] = material;
+            return material;
         }
 
         public static Material CreateDefaultBorderMaterial(Color color)
@@ -539,38 +802,9 @@ namespace GlassGlobe
             return outline;
         }
 
-        private static bool ContainsFlatLatLon(GeoCoordinate point, IList<GeoCoordinate> polygon)
-        {
-            bool inside = false;
-            float x = point.Longitude;
-            float y = point.Latitude;
-
-            for (int i = 0, j = polygon.Count - 1; i < polygon.Count; j = i++)
-            {
-                float xi = polygon[i].Longitude;
-                float yi = polygon[i].Latitude;
-                float xj = polygon[j].Longitude;
-                float yj = polygon[j].Latitude;
-                float denominator = yj - yi;
-                if (Mathf.Abs(denominator) < 0.0001f)
-                {
-                    continue;
-                }
-
-                bool intersects = ((yi > y) != (yj > y)) &&
-                    (x < (xj - xi) * (y - yi) / denominator + xi);
-
-                if (intersects)
-                {
-                    inside = !inside;
-                }
-            }
-
-            return inside;
-        }
-
         private void ClearGeneratedBorders()
         {
+            generatedLines.Clear();
             for (int index = transform.childCount - 1; index >= 0; index--)
             {
                 Transform child = transform.GetChild(index);
