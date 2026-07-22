@@ -15,10 +15,12 @@ public static class GlassGlobeAndroidBuilder
     {
         Debug.Log("GlassGlobeAndroidBuilder: Android preview build starting.");
 
+        GlassGlobeArCoreProjectSetup.EnsureConfigured();
         GlassGlobeProjectBuilder.BuildPreviewScene();
         if (!GlassGlobeBuildValidator.ValidateLoadedPreviewScene())
         {
-            throw new BuildFailedException("GlassGlobe Android build stopped because preview validation failed.");
+            throw new BuildFailedException(
+                "GlassGlobe Android build stopped because preview validation failed.");
         }
 
         string outputDirectory = Path.GetDirectoryName(OutputPath);
@@ -28,13 +30,20 @@ public static class GlassGlobeAndroidBuilder
         }
 
         PlayerSettings.productName = "GlassGlobe Preview";
-        PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android, PackageName);
-        PlayerSettings.bundleVersion = "0.2.0";
-        PlayerSettings.Android.bundleVersionCode = 11;
+        PlayerSettings.SetApplicationIdentifier(
+            NamedBuildTarget.Android,
+            PackageName);
+        PlayerSettings.bundleVersion = "0.2.1";
+        PlayerSettings.Android.bundleVersionCode = 12;
+        PlayerSettings.Android.minSdkVersion =
+            AndroidSdkVersions.AndroidApiLevel24;
         PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
-        PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
+        PlayerSettings.SetScriptingBackend(
+            NamedBuildTarget.Android,
+            ScriptingImplementation.IL2CPP);
         PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
-        // The weather overlay streams satellite and radar imagery at runtime.
+        // Weather needs network access. ARCore contributes camera permission and
+        // its required manifest entries through the enabled XR loader.
         PlayerSettings.Android.forceInternetPermission = true;
         EditorUserBuildSettings.buildAppBundle = false;
 
@@ -58,7 +67,7 @@ public static class GlassGlobeAndroidBuilder
         }
 
         Debug.Log(
-            "GlassGlobeAndroidBuilder: Android preview build succeeded. apk=" + OutputPath +
-            " size=" + summary.totalSize + " bytes");
+            "GlassGlobeAndroidBuilder: Android preview build succeeded. apk=" +
+            OutputPath + " size=" + summary.totalSize + " bytes");
     }
 }
