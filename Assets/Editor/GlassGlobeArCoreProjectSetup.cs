@@ -2,6 +2,7 @@ using UnityEditor;
 using UnityEditor.XR.Management;
 using UnityEditor.XR.Management.Metadata;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.XR.Management;
 
 /// <summary>
@@ -85,6 +86,14 @@ public static class GlassGlobeArCoreProjectSetup
         PlayerSettings.Android.minSdkVersion =
             AndroidSdkVersions.AndroidApiLevel24;
 
+        // AR Foundation and ARCore are pinned to 6.0.6 for this Unity 6000.0
+        // project. That line uses OpenGL ES on Android, so do not allow Unity's
+        // automatic graphics selection to place Vulkan first.
+        PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
+        PlayerSettings.SetGraphicsAPIs(
+            BuildTarget.Android,
+            new[] { GraphicsDeviceType.OpenGLES3 });
+
         EditorUtility.SetDirty(perBuildTarget);
         EditorUtility.SetDirty(generalSettings);
         EditorUtility.SetDirty(managerSettings);
@@ -93,7 +102,7 @@ public static class GlassGlobeArCoreProjectSetup
         if (loaderAssigned)
         {
             Debug.Log(
-                "GlassGlobe ARCore setup: Android loader enabled; camera tracking can run with its background hidden.");
+                "GlassGlobe ARCore setup: Android loader enabled; OpenGL ES 3 selected; camera tracking can run with its background hidden.");
         }
         else
         {
