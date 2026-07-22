@@ -10,6 +10,9 @@ namespace GlassGlobe
     /// </summary>
     public static class ArCoreRuntimeBootstrap
     {
+        private const string HiddenTrackingDefaultMigrationKey =
+            "GlassGlobe.Settings.HiddenTrackingDefaultV1";
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install()
         {
@@ -73,6 +76,17 @@ namespace GlassGlobe
             tracker.cameraManager = cameraManager;
             tracker.enabled = true;
             poseSensors.arCoreTracking = tracker;
+
+            GlassGlobeSettingsState.Load();
+            if (!PlayerPrefs.HasKey(HiddenTrackingDefaultMigrationKey))
+            {
+                // Existing installs used the camera image as the default. Move
+                // everyone once to the new tracking-hidden default; the AR toggle
+                // can still turn the image back on whenever desired.
+                GlassGlobeSettingsState.SetCameraFeedEnabled(false);
+                PlayerPrefs.SetInt(HiddenTrackingDefaultMigrationKey, 1);
+                PlayerPrefs.Save();
+            }
 
             CameraFeedRenderer cameraFeed =
                 Object.FindFirstObjectByType<CameraFeedRenderer>();
