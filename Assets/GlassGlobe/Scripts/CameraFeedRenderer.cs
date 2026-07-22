@@ -8,22 +8,23 @@ using UnityEngine.Android;
 namespace GlassGlobe
 {
     /// <summary>
-    /// Controls only whether the live camera image is drawn. When AR Foundation
-    /// is present, ARCameraManager stays enabled for visual-inertial tracking even
-    /// while ARCameraBackground is disabled and GlassGlobe renders its own sky.
-    /// The legacy WebCamTexture quad remains as a non-AR fallback.
+    /// Controls only whether the live camera image is drawn. ARCameraManager stays
+    /// enabled for visual-inertial tracking even while the dedicated AR camera and
+    /// ARCameraBackground are hidden, leaving GlassGlobe's own sky visible.
     /// </summary>
+    [DefaultExecutionOrder(100)]
     public sealed class CameraFeedRenderer : MonoBehaviour
     {
         public Camera targetCamera;
         public PhonePoseSensors poseSensors;
+        public Camera arTrackingCamera;
         public ARCameraManager arCameraManager;
         public ARCameraBackground arCameraBackground;
 
         [Tooltip("Assigned at scene build time so the legacy feed shader is not stripped from fallback builds.")]
         public Material feedMaterial;
 
-        [Tooltip("Vertical FOV used while the live camera background is visible.")]
+        [Tooltip("Approximate vertical FOV shown in the HUD while the live camera background is visible. ARCore's projection matrix remains authoritative.")]
         [Range(30f, 100f)]
         public float feedVerticalFovDegrees = 70f;
 
@@ -52,27 +53,19 @@ namespace GlassGlobe
         private bool devicesLogged;
         private float savedWindowFovDegrees;
         private bool hasSavedWindowFov;
+        private CameraClearFlags savedTargetClearFlags;
+        private bool targetRenderStateOverridden;
 
         private void Awake()
         {
             ResolveArReferences();
             wantFeed = startEnabledOnDevice;
+            FeedStatus = "Off";
 
             if (arCameraManager != null)
             {
                 arCameraManager.enabled = true;
             }
-
-            if (arCameraBackground != null)
-            {
-                arCameraBackground.enabled = wantFeed;
-            }
-
-            FeedActive = wantFeed && arCameraBackground != null &&
-                arCameraBackground.enabled;
-            FeedStatus = arCameraManager != null
-                ? FeedActive ? "AR visible" : "AR tracking hidden"
-                : "Off";
 
             if (!Application.isMobilePlatform)
             {
@@ -92,6 +85,21 @@ namespace GlassGlobe
             UpdateLegacyWebCamDisplay();
         }
 
+        private void LateUpdate()
+        {
+            if (!FeedActive ||
+                arTrackingCamera == null ||
+                targetCamera == null)
+            {
+                return;
+            }
+
+            // ARCameraManager updates the tracking camera's projection from the
+            // physical lens. Copy it after pose updates so the GlassGlobe overlay
+            // remains aligned whenever the live image is intentionally visible.
+            targetCamera.projectionMatrix = arTrackingCamera.projectionMatrix;
+        }
+
         public void ToggleFeed()
         {
             SetFeedWanted(!wantFeed);
@@ -104,76 +112,150 @@ namespace GlassGlobe
 
             if (arCameraManager != null)
             {
-                arCameraManager.enabled = true;
-                if (arCameraBackground != null)
-                {
-                    arCameraBackground.enabled = wantFeed;
-                }
-
-                FeedActive = wantFeed && arCameraBackground != null &&
-                    arCameraBackground.enabled;
-                FeedStatus = FeedActive ? "AR visible" : "AR tracking hidden";
-                StopLegacyFeed();
-                ApplyFov();
+                UpdateArFoundationDisplay();
                 return;
             }
 
             if (!value)
             {
                 StopLegacyFeed();
-                FeedActive = false;
+                SetFeedActive(false);
                 FeedStatus = "Off";
             }
-
-            ApplyFov();
         }
 
         private void UpdateArFoundationDisplay()
         {
-            // Never disable ARCameraManager here. It supplies camera frames to
-            // ARCore for tracking whether or not those frames are shown.
+            // Camera capture and tracking stay alive regardless of visibility.
             if (!arCameraManager.enabled)
             {
                 arCameraManager.enabled = true;
             }
 
-            if (arCameraBackground != null && arCameraBackground.enabled != wantFeed)
+            bool displayReady =
+                arTrackingCamera != null && arCameraBackground != null;
+
+            if (arCameraBackground != null &&
+                arCameraBackground.enabled != wantFeed)
             {
                 arCameraBackground.enabled = wantFeed;
             }
 
-            FeedActive = wantFeed && arCameraBackground != null &&
-                arCameraBackground.enabled;
-            if (FeedActive)
+            if (arTrackingCamera != null)
             {
-                FeedStatus = "AR visible";
+                arTrackingCamera.cullingMask = 0;
+                arTrackingCamera.depth = targetCamera != null
+                    ? targetCamera.depth - 1f
+                    : -2f;
+                if (targetCamera != null)
+                {
+                    arTrackingCamera.rect = targetCamera.rect;
+                    arTrackingCamera.targetDisplay = targetCamera.targetDisplay;
+                }
+
+                if (arTrackingCamera.enabled != wantFeed)
+                {
+                    arTrackingCamera.enabled = wantFeed;
+                }
+            }
+
+            bool imageVisible = wantFeed && displayReady;
+            SetFeedActive(imageVisible);
+
+            if (imageVisible)
+            {
+                OverrideTargetRenderState();
+                FeedStatus = ARSession.state == ARSessionState.SessionTracking
+                    ? "AR visible"
+                    : "AR starting visible";
             }
             else
             {
-                ARSessionState state = ARSession.state;
-                FeedStatus = state == ARSessionState.SessionTracking
-                    ? "AR tracking hidden"
-                    : "AR starting hidden";
+                RestoreTargetRenderState();
+                if (wantFeed)
+                {
+                    FeedStatus = "AR display unavailable; tracking active";
+                }
+                else
+                {
+                    FeedStatus = ARSession.state == ARSessionState.SessionTracking
+                        ? "AR tracking hidden"
+                        : "AR starting hidden";
+                }
             }
 
+            // ARCore owns the camera hardware. Never start the competing legacy
+            // WebCamTexture path once the AR camera subsystem is available.
             StopLegacyFeed();
-            ApplyFov();
+        }
+
+        private void OverrideTargetRenderState()
+        {
+            if (targetCamera == null)
+            {
+                return;
+            }
+
+            if (!targetRenderStateOverridden)
+            {
+                savedTargetClearFlags = targetCamera.clearFlags;
+                targetRenderStateOverridden = true;
+            }
+
+            // The lower-depth AR camera supplies color. GlassGlobe clears only
+            // depth, then renders the Earth, Milky Way, labels, and overlays.
+            targetCamera.clearFlags = CameraClearFlags.Depth;
+        }
+
+        private void RestoreTargetRenderState()
+        {
+            if (targetCamera == null || !targetRenderStateOverridden)
+            {
+                return;
+            }
+
+            targetCamera.clearFlags = savedTargetClearFlags;
+            targetCamera.ResetProjectionMatrix();
+            targetRenderStateOverridden = false;
+        }
+
+        private void SetFeedActive(bool active)
+        {
+            if (FeedActive == active)
+            {
+                return;
+            }
+
+            FeedActive = active;
+            if (poseSensors == null)
+            {
+                return;
+            }
+
+            if (active)
+            {
+                if (!hasSavedWindowFov)
+                {
+                    savedWindowFovDegrees = poseSensors.cameraFovDegrees;
+                    hasSavedWindowFov = true;
+                }
+
+                poseSensors.cameraFovDegrees = feedVerticalFovDegrees;
+            }
+            else if (hasSavedWindowFov)
+            {
+                poseSensors.cameraFovDegrees = savedWindowFovDegrees;
+                hasSavedWindowFov = false;
+            }
         }
 
         private void UpdateLegacyWebCamDisplay()
         {
             if (!wantFeed)
             {
-                if (FeedActive ||
-                    (webCamTexture != null && webCamTexture.isPlaying) ||
-                    FeedStatus != "Off")
-                {
-                    StopLegacyFeed();
-                    FeedActive = false;
-                    FeedStatus = "Off";
-                    ApplyFov();
-                }
-
+                StopLegacyFeed();
+                SetFeedActive(false);
+                FeedStatus = "Off";
                 return;
             }
 
@@ -207,46 +289,13 @@ namespace GlassGlobe
                 return;
             }
 
-            if (!FeedActive)
-            {
-                FeedActive = true;
-                ApplyFov();
-            }
-
+            SetFeedActive(true);
             FeedStatus = string.Format(
                 "Camera {0}x{1}",
                 webCamTexture.width,
                 webCamTexture.height);
             EnsureQuad();
             UpdateQuad();
-        }
-
-        private void ApplyFov()
-        {
-            if (poseSensors == null)
-            {
-                return;
-            }
-
-            if (wantFeed && FeedActive)
-            {
-                if (!hasSavedWindowFov)
-                {
-                    savedWindowFovDegrees = poseSensors.cameraFovDegrees;
-                    hasSavedWindowFov = true;
-                }
-
-                poseSensors.cameraFovDegrees = feedVerticalFovDegrees;
-            }
-            else if (hasSavedWindowFov)
-            {
-                poseSensors.cameraFovDegrees = savedWindowFovDegrees;
-                hasSavedWindowFov = false;
-            }
-            else if (!wantFeed)
-            {
-                poseSensors.cameraFovDegrees = windowFovDegrees;
-            }
         }
 
         private void ResolveArReferences()
@@ -256,19 +305,20 @@ namespace GlassGlobe
                 targetCamera = GetComponent<Camera>();
             }
 
-            if (targetCamera == null)
-            {
-                return;
-            }
-
             if (arCameraManager == null)
             {
-                arCameraManager = targetCamera.GetComponent<ARCameraManager>();
+                arCameraManager = FindFirstObjectByType<ARCameraManager>();
             }
 
-            if (arCameraBackground == null)
+            if (arTrackingCamera == null && arCameraManager != null)
             {
-                arCameraBackground = targetCamera.GetComponent<ARCameraBackground>();
+                arTrackingCamera = arCameraManager.GetComponent<Camera>();
+            }
+
+            if (arCameraBackground == null && arTrackingCamera != null)
+            {
+                arCameraBackground =
+                    arTrackingCamera.GetComponent<ARCameraBackground>();
             }
         }
 
@@ -293,7 +343,8 @@ namespace GlassGlobe
             if (!devicesLogged)
             {
                 devicesLogged = true;
-                System.Text.StringBuilder deviceList = new System.Text.StringBuilder();
+                System.Text.StringBuilder deviceList =
+                    new System.Text.StringBuilder();
                 for (int index = 0; index < devices.Length; index++)
                 {
                     if (index > 0)
@@ -302,7 +353,9 @@ namespace GlassGlobe
                     }
 
                     deviceList.Append(devices[index].name)
-                        .Append(devices[index].isFrontFacing ? " (front)" : " (rear)");
+                        .Append(devices[index].isFrontFacing
+                            ? " (front)"
+                            : " (rear)");
                 }
 
                 Debug.Log(
@@ -383,13 +436,16 @@ namespace GlassGlobe
 
             GameObject quadObject = new GameObject("Camera Feed Quad");
             quadObject.transform.SetParent(ResolveCameraTransform(), false);
-            quadObject.transform.localPosition = new Vector3(0f, 0f, quadDistance);
+            quadObject.transform.localPosition =
+                new Vector3(0f, 0f, quadDistance);
 
             MeshFilter meshFilter = quadObject.AddComponent<MeshFilter>();
             meshFilter.sharedMesh =
-                GlassGlobeVisuals.BuildQuadMesh("GlassGlobe Camera Feed Quad");
+                GlassGlobeVisuals.BuildQuadMesh(
+                    "GlassGlobe Camera Feed Quad");
 
-            MeshRenderer meshRenderer = quadObject.AddComponent<MeshRenderer>();
+            MeshRenderer meshRenderer =
+                quadObject.AddComponent<MeshRenderer>();
             meshRenderer.shadowCastingMode =
                 UnityEngine.Rendering.ShadowCastingMode.Off;
             meshRenderer.receiveShadows = false;
@@ -406,22 +462,29 @@ namespace GlassGlobe
                 return;
             }
 
-            if (feedMaterial != null && feedMaterial.mainTexture != webCamTexture)
+            if (feedMaterial != null &&
+                feedMaterial.mainTexture != webCamTexture)
             {
                 feedMaterial.mainTexture = webCamTexture;
             }
 
             int rotation = webCamTexture.videoRotationAngle;
             bool rotated = rotation == 90 || rotation == 270;
-            quadTransform.localRotation = Quaternion.Euler(0f, 0f, -rotation);
+            quadTransform.localRotation =
+                Quaternion.Euler(0f, 0f, -rotation);
 
-            float verticalSize = 2f * quadDistance * Mathf.Tan(
-                feedVerticalFovDegrees * 0.5f * Mathf.Deg2Rad);
+            float verticalSize =
+                2f * quadDistance * Mathf.Tan(
+                    feedVerticalFovDegrees * 0.5f * Mathf.Deg2Rad);
             float textureAspect =
-                (float)webCamTexture.height / Mathf.Max(1, webCamTexture.width);
+                (float)webCamTexture.height /
+                Mathf.Max(1, webCamTexture.width);
 
             Vector3 scale = rotated
-                ? new Vector3(verticalSize, verticalSize * textureAspect, 1f)
+                ? new Vector3(
+                    verticalSize,
+                    verticalSize * textureAspect,
+                    1f)
                 : new Vector3(
                     verticalSize / Mathf.Max(0.0001f, textureAspect),
                     verticalSize,
