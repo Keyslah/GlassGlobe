@@ -7,16 +7,17 @@ using UnityEngine.Android;
 namespace GlassGlobe
 {
     /// <summary>
-    /// Drives the phone viewport from real device sensors: GPS for the observer's
-    /// lat/lon and the fused attitude sensor (gravity + gyro + magnetometer) for
-    /// orientation. Replaces PhonePoseSimulator at runtime on device; in the
-    /// editor the simulator stays in charge unless useSensorsInEditor is set.
+    /// Drives the phone viewport from GPS plus device orientation. Automatic mode
+    /// uses Unity's magnetic attitude. Set North switches to ARCore's visual-
+    /// inertial tracking space, with the custom game-rotation vector retained only
+    /// as a fallback for scenes that do not contain an AR tracker.
     /// </summary>
     public sealed class PhonePoseSensors : MonoBehaviour
     {
         public PhonePoseSimulator simulator;
         public GlobeRenderer globe;
         public Camera targetCamera;
+        public ArCoreOrientationTracker arCoreTracking;
         public Transform userPositionMarker;
         public LineRenderer localUpLine;
         public LineRenderer localDownLine;
@@ -55,11 +56,38 @@ namespace GlassGlobe
         public bool HasAttitude { get; private set; }
         public bool GameRotationAvailable { get; private set; }
         public bool GameRotationFresh { get; private set; }
-        public bool GyroNorthLockActive { get; private set; }
+        public bool ArTrackingAvailable
+        {
+            get { return arCoreTracking != null && arCoreTracking.TrackingAvailable; }
+        }
+        public bool ArTrackingFresh
+        {
+            get { return arCoreTracking != null && arCoreTracking.TrackingFresh; }
+        }
+        public bool ArNorthLockActive
+        {
+            get { return arCoreTracking != null && arCoreTracking.NorthLockActive; }
+        }
+        // Kept for the existing HUD/settings API. It now means any stable North
+        // lock, with ARCore preferred and the gyro-only path used only as fallback.
+        public bool GyroNorthLockActive
+        {
+            get { return ArNorthLockActive || gyroFallbackNorthLockActive; }
+        }
         public string OrientationStatus { get; private set; }
         public float ActiveHeadingCorrectionDegrees
         {
-            get { return GyroNorthLockActive ? gyroNorthYawCorrectionDegrees : headingOffsetDegrees; }
+            get
+            {
+                if (ArNorthLockActive)
+                {
+                    return arCoreTracking.HeadingCorrectionDegrees;
+                }
+
+                return gyroFallbackNorthLockActive
+                    ? gyroNorthYawCorrectionDegrees
+                    : headingOffsetDegrees;
+            }
         }
 
         private bool locationStartRequested;
@@ -70,6 +98,7 @@ namespace GlassGlobe
         private bool hasCurrentGameDeviceInEnu;
         private int currentGameDisplayRotation = -1;
         private float gyroNorthYawCorrectionDegrees;
+        private bool gyroFallbackNorthLockActive;
         private bool gyroNorthLockNeedsReset;
         private Quaternion smoothedRotation = Quaternion.identity;
         private bool hasSmoothedRotation;
@@ -82,15 +111,13 @@ namespace GlassGlobe
         {
             ResolveReferences();
             GlassGlobeSettingsState.Load();
-            // Fine adjustments remain persistent. The gyro north lock itself is
-            // session-only because its arbitrary yaw reference can reset.
             headingOffsetDegrees = GlassGlobeSettingsState.HeadingFineOffsetDegrees;
             gyroNorthYawCorrectionDegrees = 0f;
-            GyroNorthLockActive = false;
+            gyroFallbackNorthLockActive = false;
 
             SensorModeActive = Application.isMobilePlatform || useSensorsInEditor;
             LocationStatus = "Not started";
-            OrientationStatus = "Starting orientation sensors";
+            OrientationStatus = "Starting orientation tracking";
 
             if (!SensorModeActive)
             {
@@ -120,9 +147,11 @@ namespace GlassGlobe
 
             gameRotationVector = new AndroidGameRotationVector();
             GameRotationAvailable = gameRotationVector.Start();
-            OrientationStatus = GameRotationAvailable
-                ? "Automatic compass (gyro north lock ready)"
-                : "Automatic compass (gyro north lock unavailable)";
+            OrientationStatus = arCoreTracking != null
+                ? "AR visual tracking starting"
+                : GameRotationAvailable
+                    ? "Automatic compass (gyro fallback ready)"
+                    : "Automatic compass";
 
             if (!GlassGlobeSettingsState.ViewpointOverrideEnabled)
             {
@@ -144,7 +173,7 @@ namespace GlassGlobe
             {
                 lastLogTime = Time.time;
                 Debug.Log(string.Format(
-                    "GlassGlobeSensors: fix={0} acc={1:0.0}m user={2} heading={3:0.0} tilt={4:0.0} rawHeading={5:0.0} compassTrue={6:0.0} corr={7:0.0} offset={8:0.0} orientation={9}",
+                    "GlassGlobeSensors: fix={0} acc={1:0.0}m user={2} heading={3:0.0} tilt={4:0.0} rawHeading={5:0.0} compassTrue={6:0.0} corr={7:0.0} offset={8:0.0} arAvailable={9} arFresh={10} orientation={11}",
                     HasLocationFix,
                     LocationAccuracyMeters,
                     CurrentCoordinate,
@@ -154,36 +183,51 @@ namespace GlassGlobe
                     CompassTrueHeadingDegrees,
                     CompassCorrectionDegrees,
                     ActiveHeadingCorrectionDegrees,
+                    ArTrackingAvailable,
+                    ArTrackingFresh,
                     OrientationStatus));
             }
         }
 
         private void OnApplicationPause(bool pauseStatus)
         {
-            if (!SensorModeActive || gameRotationVector == null)
+            if (!SensorModeActive)
             {
                 return;
             }
 
             if (pauseStatus)
             {
-                gameRotationVector.Stop();
+                if (gameRotationVector != null)
+                {
+                    gameRotationVector.Stop();
+                }
+
                 GameRotationFresh = false;
                 hasCurrentGameDeviceInEnu = false;
                 currentGameDisplayRotation = -1;
-                if (GyroNorthLockActive)
+
+                // The gyro-only fallback frame can restart with a different yaw,
+                // so that fallback lock still needs another Set North. ARCore's
+                // tracker preserves and rebases its Earth mapping separately.
+                if (gyroFallbackNorthLockActive)
                 {
-                    GyroNorthLockActive = false;
+                    gyroFallbackNorthLockActive = false;
                     gyroNorthYawCorrectionDegrees = 0f;
                     gyroNorthLockNeedsReset = true;
                     hasSmoothedRotation = false;
-                    OrientationStatus = "Automatic compass (Set North again after resume)";
                 }
 
+                OrientationStatus = ArNorthLockActive
+                    ? "AR north lock held through pause"
+                    : "Automatic compass (Set North again after resume)";
                 return;
             }
 
-            GameRotationAvailable = gameRotationVector.Start();
+            if (gameRotationVector != null)
+            {
+                GameRotationAvailable = gameRotationVector.Start();
+            }
         }
 
         private void OnDestroy()
@@ -207,7 +251,11 @@ namespace GlassGlobe
                 return;
             }
 
-            if (GyroNorthLockActive)
+            if (ArNorthLockActive)
+            {
+                arCoreTracking.NudgeHeading(degrees);
+            }
+            else if (gyroFallbackNorthLockActive)
             {
                 gyroNorthYawCorrectionDegrees = NormalizeHeadingOffset(
                     gyroNorthYawCorrectionDegrees + degrees);
@@ -224,6 +272,28 @@ namespace GlassGlobe
         public bool TryAlignCurrentHeadingToNorth(out float correctionDegrees)
         {
             correctionDegrees = 0f;
+
+            // If an AR tracker is present, do not silently drop back to the
+            // drifting gyro frame while ARCore is merely initializing. The user
+            // can retry as soon as visual tracking reports a live pose.
+            if (arCoreTracking != null)
+            {
+                if (!arCoreTracking.TryAlignCurrentHeading(0f, out correctionDegrees))
+                {
+                    OrientationStatus = arCoreTracking.Status;
+                    return false;
+                }
+
+                gyroFallbackNorthLockActive = false;
+                gyroNorthYawCorrectionDegrees = 0f;
+                gyroNorthLockNeedsReset = false;
+                CompassCorrectionDegrees = 0f;
+                compassCorrectionInitialized = false;
+                OrientationStatus = arCoreTracking.Status;
+                hasSmoothedRotation = false;
+                return true;
+            }
+
             UpdateGameRotationVector();
             if (!SensorModeActive ||
                 !GameRotationAvailable ||
@@ -233,9 +303,6 @@ namespace GlassGlobe
                 return false;
             }
 
-            // Set North is defined by the center of the upright viewport. A
-            // nearly vertical camera-forward vector has no usable azimuth, so
-            // require the phone to be held upright as the UI instructs.
             Vector3 rawForward = currentGameDeviceInEnu * Vector3.forward;
             Vector3 horizontalForward = new Vector3(rawForward.x, 0f, rawForward.z);
             if (horizontalForward.sqrMagnitude < 0.5f)
@@ -256,6 +323,30 @@ namespace GlassGlobe
         {
             correctionDegrees = 0f;
             altitudeErrorDegrees = float.NaN;
+
+            if (arCoreTracking != null)
+            {
+                if (!arCoreTracking.TryAlignCurrentViewToSkyTarget(
+                        targetAzimuthDegrees,
+                        targetAltitudeDegrees,
+                        maximumAltitudeErrorDegrees,
+                        out correctionDegrees,
+                        out altitudeErrorDegrees))
+                {
+                    OrientationStatus = arCoreTracking.Status;
+                    return false;
+                }
+
+                gyroFallbackNorthLockActive = false;
+                gyroNorthYawCorrectionDegrees = 0f;
+                gyroNorthLockNeedsReset = false;
+                CompassCorrectionDegrees = 0f;
+                compassCorrectionInitialized = false;
+                OrientationStatus = arCoreTracking.Status;
+                hasSmoothedRotation = false;
+                return true;
+            }
+
             UpdateGameRotationVector();
             if (!SensorModeActive ||
                 !GameRotationAvailable ||
@@ -272,7 +363,8 @@ namespace GlassGlobe
             }
 
             rawForward.Normalize();
-            float currentAltitudeDegrees = Mathf.Asin(Mathf.Clamp(rawForward.y, -1f, 1f)) * Mathf.Rad2Deg;
+            float currentAltitudeDegrees =
+                Mathf.Asin(Mathf.Clamp(rawForward.y, -1f, 1f)) * Mathf.Rad2Deg;
             altitudeErrorDegrees = targetAltitudeDegrees - currentAltitudeDegrees;
             if (Mathf.Abs(altitudeErrorDegrees) > Mathf.Max(0f, maximumAltitudeErrorDegrees))
             {
@@ -295,7 +387,7 @@ namespace GlassGlobe
             float targetAzimuthDegrees,
             out float correctionDegrees)
         {
-            float currentTotalCorrection = GyroNorthLockActive
+            float currentTotalCorrection = gyroFallbackNorthLockActive
                 ? gyroNorthYawCorrectionDegrees
                 : 0f;
             Vector3 correctedForward =
@@ -305,15 +397,13 @@ namespace GlassGlobe
                 360f);
             correctionDegrees = Mathf.DeltaAngle(correctedHeading, targetAzimuthDegrees);
 
-            // Save one constant yaw for the full magnetometer-free pose. Pitch,
-            // roll, and deliberate turns now work without desk-driven compass yaw.
             gyroNorthYawCorrectionDegrees = NormalizeHeadingOffset(
                 currentTotalCorrection + correctionDegrees);
             CompassCorrectionDegrees = 0f;
             compassCorrectionInitialized = false;
-            GyroNorthLockActive = true;
+            gyroFallbackNorthLockActive = true;
             gyroNorthLockNeedsReset = false;
-            OrientationStatus = "Gyro north lock (compass ignored)";
+            OrientationStatus = "Gyro fallback north lock (compass ignored)";
             hasSmoothedRotation = false;
         }
 
@@ -323,12 +413,22 @@ namespace GlassGlobe
             compassCorrectionInitialized = false;
             headingOffsetDegrees = 0f;
             gyroNorthYawCorrectionDegrees = 0f;
-            GyroNorthLockActive = false;
+            gyroFallbackNorthLockActive = false;
             gyroNorthLockNeedsReset = false;
             GlassGlobeSettingsState.SetHeadingFineOffset(0f);
-            OrientationStatus = GameRotationAvailable
-                ? "Automatic compass (gyro north lock ready)"
-                : "Automatic compass (gyro north lock unavailable)";
+
+            if (arCoreTracking != null)
+            {
+                arCoreTracking.ResetNorthLock();
+                OrientationStatus = arCoreTracking.Status;
+            }
+            else
+            {
+                OrientationStatus = GameRotationAvailable
+                    ? "Automatic compass (gyro fallback ready)"
+                    : "Automatic compass";
+            }
+
             hasSmoothedRotation = false;
         }
 
@@ -409,8 +509,6 @@ namespace GlassGlobe
                     ScheduleLocationRestart();
                     break;
                 default:
-                    // The OS can stop the service (e.g. while backgrounded);
-                    // schedule a restart instead of staying dead until relaunch.
                     LocationStatus = "GPS stopped; restarting shortly";
                     ScheduleLocationRestart();
                     break;
@@ -427,7 +525,8 @@ namespace GlassGlobe
         private void RequestLocationPermissionIfNeeded()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            if (!locationPermissionRequested && !Permission.HasUserAuthorizedPermission(Permission.FineLocation))
+            if (!locationPermissionRequested &&
+                !Permission.HasUserAuthorizedPermission(Permission.FineLocation))
             {
                 locationPermissionRequested = true;
                 Permission.RequestUserPermission(Permission.FineLocation);
@@ -444,24 +543,40 @@ namespace GlassGlobe
             }
 
             EarthMath.LocalFrame frame = EarthMath.GetLocalFrame(CurrentCoordinate);
-            Vector3 observerPosition = globe.Center + frame.Up * (globe.RadiusUnits + observerHeightUnits);
+            Vector3 observerPosition =
+                globe.Center + frame.Up * (globe.RadiusUnits + observerHeightUnits);
 
             UpdateGameRotationVector();
 
-            // Unity's Android attitude uses the magnetic rotation vector. Keep
-            // it for automatic north, but never use it while gyro lock is active.
             Quaternion raw = Input.gyro.attitude;
             bool hasMagneticAttitude =
                 raw.x != 0f || raw.y != 0f || raw.z != 0f || raw.w != 0f;
 
             Quaternion deviceInEnu;
             float totalYawCorrection;
-            if (GyroNorthLockActive)
+            if (ArNorthLockActive)
+            {
+                bool frozen;
+                if (!arCoreTracking.TryGetDeviceInEnu(out deviceInEnu, out frozen))
+                {
+                    HasAttitude = false;
+                    OrientationStatus = arCoreTracking.Status;
+                    return;
+                }
+
+                HasAttitude = true;
+                CompassCorrectionDegrees = 0f;
+                totalYawCorrection = 0f;
+                OrientationStatus = frozen
+                    ? "AR north lock (orientation frozen; tracking waiting)"
+                    : arCoreTracking.Status;
+            }
+            else if (gyroFallbackNorthLockActive)
             {
                 if (!hasCurrentGameDeviceInEnu)
                 {
                     HasAttitude = false;
-                    OrientationStatus = "Gyro north lock (waiting for sensor)";
+                    OrientationStatus = "Gyro fallback north lock (waiting for sensor)";
                     return;
                 }
 
@@ -470,8 +585,8 @@ namespace GlassGlobe
                 CompassCorrectionDegrees = 0f;
                 totalYawCorrection = gyroNorthYawCorrectionDegrees;
                 OrientationStatus = GameRotationFresh
-                    ? "Gyro north lock (compass ignored)"
-                    : "Gyro north lock (orientation frozen; sensor waiting)";
+                    ? "Gyro fallback north lock (compass ignored)"
+                    : "Gyro fallback north lock (orientation frozen; sensor waiting)";
             }
             else
             {
@@ -489,16 +604,19 @@ namespace GlassGlobe
                 totalYawCorrection = CompassCorrectionDegrees + headingOffsetDegrees;
                 OrientationStatus = gyroNorthLockNeedsReset
                     ? "Automatic compass (Set North again after resume)"
-                    : GameRotationAvailable
-                        ? "Automatic compass (Set North for metal resistance)"
-                        : "Automatic compass (gyro north lock unavailable)";
+                    : arCoreTracking != null
+                        ? arCoreTracking.TrackingFresh
+                            ? "Automatic compass (AR Set North ready)"
+                            : "Automatic compass (AR tracking starting)"
+                        : GameRotationAvailable
+                            ? "Automatic compass (gyro fallback ready)"
+                            : "Automatic compass";
             }
 
-            // Map the sensor-world frame onto the globe's local frame at the
-            // observer, then apply the selected source's fixed yaw correction.
             Quaternion enuToWorld = Quaternion.LookRotation(frame.North, frame.Up);
             Quaternion targetRotation =
-                Quaternion.AngleAxis(totalYawCorrection, frame.Up) * enuToWorld * deviceInEnu;
+                Quaternion.AngleAxis(totalYawCorrection, frame.Up) *
+                enuToWorld * deviceInEnu;
 
             if (!hasSmoothedRotation)
             {
@@ -507,14 +625,20 @@ namespace GlassGlobe
             }
             else
             {
-                smoothedRotation = Quaternion.Slerp(smoothedRotation, targetRotation, 1f - Mathf.Pow(attitudeSmoothing, Time.deltaTime * 60f));
+                smoothedRotation = Quaternion.Slerp(
+                    smoothedRotation,
+                    targetRotation,
+                    1f - Mathf.Pow(attitudeSmoothing, Time.deltaTime * 60f));
             }
 
             transform.SetPositionAndRotation(observerPosition, smoothedRotation);
             targetCamera.transform.SetPositionAndRotation(observerPosition, smoothedRotation);
             targetCamera.fieldOfView = cameraFovDegrees;
             targetCamera.nearClipPlane = EarthMath.CalculateThroughEarthNearClip(
-                observerPosition, smoothedRotation * Vector3.forward, globe.Center, globe.RadiusUnits);
+                observerPosition,
+                smoothedRotation * Vector3.forward,
+                globe.Center,
+                globe.RadiusUnits);
             targetCamera.farClipPlane = Mathf.Max(
                 targetCamera.farClipPlane,
                 EarthMath.CalculateSkyFarClip(globe.RadiusUnits, MaxSkyRadius()));
@@ -555,9 +679,6 @@ namespace GlassGlobe
 
         private void UpdateCompassCorrection(Quaternion deviceInEnu)
         {
-            // This scalar heading is a readout only. It must never drive pose
-            // correction because its reference axis changes between the
-            // camera-forward and screen-top directions as the phone pitches.
             Vector3 forward = deviceInEnu * Vector3.forward;
             Vector3 up = deviceInEnu * Vector3.up;
             Vector3 headingVector;
@@ -579,7 +700,9 @@ namespace GlassGlobe
                 return;
             }
 
-            AttitudeHeadingRawDegrees = Mathf.Repeat(Mathf.Atan2(headingVector.x, headingVector.z) * Mathf.Rad2Deg, 360f);
+            AttitudeHeadingRawDegrees = Mathf.Repeat(
+                Mathf.Atan2(headingVector.x, headingVector.z) * Mathf.Rad2Deg,
+                360f);
             CompassTrueHeadingDegrees = Input.compass.trueHeading;
 
             float desiredCorrection;
@@ -588,10 +711,6 @@ namespace GlassGlobe
                 return;
             }
 
-            // Android's rotation-vector frame is already magnetic-north based.
-            // Only magnetic declination is needed for geographic true north.
-            // Both compass values use the same screen axis, so subtracting them
-            // cancels that axis without feeding pitch into camera yaw.
             if (!compassCorrectionInitialized)
             {
                 CompassCorrectionDegrees = desiredCorrection;
@@ -599,8 +718,12 @@ namespace GlassGlobe
                 return;
             }
 
-            float lerpFactor = 1f - Mathf.Exp(-Time.deltaTime / Mathf.Max(1f, compassAlignSeconds));
-            CompassCorrectionDegrees = Mathf.LerpAngle(CompassCorrectionDegrees, desiredCorrection, lerpFactor);
+            float lerpFactor =
+                1f - Mathf.Exp(-Time.deltaTime / Mathf.Max(1f, compassAlignSeconds));
+            CompassCorrectionDegrees = Mathf.LerpAngle(
+                CompassCorrectionDegrees,
+                desiredCorrection,
+                lerpFactor);
         }
 
         private static bool TryGetTrueNorthCorrection(out float correctionDegrees)
@@ -619,8 +742,6 @@ namespace GlassGlobe
                 return false;
             }
 
-            // Unity only guarantees trueHeading after location starts. Until
-            // then, keep the rotation-vector's magnetic-north reference.
             if (Input.location.status != LocationServiceStatus.Running)
             {
                 return true;
@@ -635,9 +756,12 @@ namespace GlassGlobe
             Vector3 forward = smoothedRotation * Vector3.forward;
             float eastComponent = Vector3.Dot(forward, frame.East);
             float northComponent = Vector3.Dot(forward, frame.North);
-            if (Mathf.Abs(eastComponent) > 0.0001f || Mathf.Abs(northComponent) > 0.0001f)
+            if (Mathf.Abs(eastComponent) > 0.0001f ||
+                Mathf.Abs(northComponent) > 0.0001f)
             {
-                HeadingDegrees = Mathf.Repeat(Mathf.Atan2(eastComponent, northComponent) * Mathf.Rad2Deg, 360f);
+                HeadingDegrees = Mathf.Repeat(
+                    Mathf.Atan2(eastComponent, northComponent) * Mathf.Rad2Deg,
+                    360f);
             }
 
             TiltDegrees = Vector3.Angle(frame.Down, forward);
@@ -659,7 +783,9 @@ namespace GlassGlobe
             return maxRadius;
         }
 
-        private void UpdateDebugVisuals(EarthMath.LocalFrame frame, Vector3 observerPosition)
+        private void UpdateDebugVisuals(
+            EarthMath.LocalFrame frame,
+            Vector3 observerPosition)
         {
             Vector3 surfacePosition = globe.Center + frame.Up * globe.RadiusUnits;
 
@@ -672,14 +798,18 @@ namespace GlassGlobe
             {
                 localUpLine.positionCount = 2;
                 localUpLine.SetPosition(0, surfacePosition);
-                localUpLine.SetPosition(1, surfacePosition + frame.Up * debugLineLength);
+                localUpLine.SetPosition(
+                    1,
+                    surfacePosition + frame.Up * debugLineLength);
             }
 
             if (localDownLine != null)
             {
                 localDownLine.positionCount = 2;
                 localDownLine.SetPosition(0, surfacePosition);
-                localDownLine.SetPosition(1, surfacePosition + frame.Down * debugLineLength);
+                localDownLine.SetPosition(
+                    1,
+                    surfacePosition + frame.Down * debugLineLength);
             }
         }
 
@@ -705,6 +835,11 @@ namespace GlassGlobe
                 targetCamera = GetComponentInChildren<Camera>();
             }
 
+            if (arCoreTracking == null)
+            {
+                arCoreTracking = FindFirstObjectByType<ArCoreOrientationTracker>();
+            }
+
             if (milkyWayBackground == null)
             {
                 milkyWayBackground = FindFirstObjectByType<MilkyWayBackground>();
@@ -717,4 +852,3 @@ namespace GlassGlobe
         }
     }
 }
-
