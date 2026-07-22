@@ -267,9 +267,7 @@ namespace GlassGlobe
 
             ARSessionState sessionState = ARSession.state;
             bool sessionCanTrack =
-                sessionState == ARSessionState.SessionTracking ||
-                sessionState == ARSessionState.SessionInitializing ||
-                sessionState == ARSessionState.Ready;
+                sessionState == ARSessionState.SessionTracking;
             TrackingAvailable = sessionState != ARSessionState.Unsupported &&
                 sessionState != ARSessionState.None;
 
