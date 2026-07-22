@@ -14,6 +14,7 @@ namespace GlassGlobe
     {
         public ARSession arSession;
         public ARCameraManager cameraManager;
+        public Transform trackingPose;
 
         public bool TrackingAvailable { get; private set; }
         public bool TrackingFresh { get; private set; }
@@ -103,7 +104,9 @@ namespace GlassGlobe
             return false;
         }
 
-        public bool TryAlignCurrentHeading(float targetAzimuthDegrees, out float correctionDegrees)
+        public bool TryAlignCurrentHeading(
+            float targetAzimuthDegrees,
+            out float correctionDegrees)
         {
             correctionDegrees = 0f;
             if (!TryGetFreshMappedRotation(out Quaternion mappedRotation))
@@ -118,7 +121,10 @@ namespace GlassGlobe
                 return false;
             }
 
-            ApplyHeadingCorrection(horizontalForward, targetAzimuthDegrees, out correctionDegrees);
+            ApplyHeadingCorrection(
+                horizontalForward,
+                targetAzimuthDegrees,
+                out correctionDegrees);
             return true;
         }
 
@@ -146,7 +152,8 @@ namespace GlassGlobe
             float currentAltitudeDegrees =
                 Mathf.Asin(Mathf.Clamp(rawForward.y, -1f, 1f)) * Mathf.Rad2Deg;
             altitudeErrorDegrees = targetAltitudeDegrees - currentAltitudeDegrees;
-            if (Mathf.Abs(altitudeErrorDegrees) > Mathf.Max(0f, maximumAltitudeErrorDegrees))
+            if (Mathf.Abs(altitudeErrorDegrees) >
+                Mathf.Max(0f, maximumAltitudeErrorDegrees))
             {
                 return false;
             }
@@ -158,7 +165,10 @@ namespace GlassGlobe
                 return false;
             }
 
-            ApplyHeadingCorrection(horizontalForward, targetAzimuthDegrees, out correctionDegrees);
+            ApplyHeadingCorrection(
+                horizontalForward,
+                targetAzimuthDegrees,
+                out correctionDegrees);
             return true;
         }
 
@@ -220,18 +230,24 @@ namespace GlassGlobe
             out float correctionDegrees)
         {
             float currentHeading = Mathf.Repeat(
-                Mathf.Atan2(horizontalForward.x, horizontalForward.z) * Mathf.Rad2Deg,
+                Mathf.Atan2(horizontalForward.x, horizontalForward.z) *
+                Mathf.Rad2Deg,
                 360f);
-            correctionDegrees = Mathf.DeltaAngle(currentHeading, targetAzimuthDegrees);
+            correctionDegrees = Mathf.DeltaAngle(
+                currentHeading,
+                targetAzimuthDegrees);
 
-            enuFromTracking = Quaternion.AngleAxis(correctionDegrees, Vector3.up) *
+            enuFromTracking =
+                Quaternion.AngleAxis(correctionDegrees, Vector3.up) *
                 (NorthLockActive ? enuFromTracking : Quaternion.identity);
             HeadingCorrectionDegrees = NormalizeHeadingOffset(
-                (NorthLockActive ? HeadingCorrectionDegrees : 0f) + correctionDegrees);
+                (NorthLockActive ? HeadingCorrectionDegrees : 0f) +
+                correctionDegrees);
             NorthLockActive = true;
             rebaseWhenTrackingReturns = false;
 
-            Quaternion mappedRotation = enuFromTracking * currentTrackingRotation;
+            Quaternion mappedRotation =
+                enuFromTracking * currentTrackingRotation;
             RememberDevicePose(mappedRotation);
             Status = "AR north lock (camera tracking, background optional)";
         }
@@ -250,20 +266,23 @@ namespace GlassGlobe
             KeepTrackingComponentsEnabled();
 
             ARSessionState sessionState = ARSession.state;
-            bool sessionCanTrack = sessionState == ARSessionState.SessionTracking ||
+            bool sessionCanTrack =
+                sessionState == ARSessionState.SessionTracking ||
                 sessionState == ARSessionState.SessionInitializing ||
                 sessionState == ARSessionState.Ready;
             TrackingAvailable = sessionState != ARSessionState.Unsupported &&
                 sessionState != ARSessionState.None;
 
-            if (!sessionCanTrack || !TryReadTrackingRotation(out Quaternion nextRotation))
+            if (!sessionCanTrack ||
+                !TryReadTrackingRotation(out Quaternion nextRotation))
             {
                 TrackingFresh = false;
                 hasCurrentTrackingRotation = false;
                 if (NorthLockActive && hasLastDeviceInEnu)
                 {
                     rebaseWhenTrackingReturns = true;
-                    Status = "AR north lock (orientation frozen; tracking waiting)";
+                    Status =
+                        "AR north lock (orientation frozen; tracking waiting)";
                 }
                 else
                 {
@@ -274,12 +293,15 @@ namespace GlassGlobe
             }
 
             TrackingAvailable = true;
-            if (rebaseWhenTrackingReturns && NorthLockActive && hasLastDeviceInEnu)
+            if (rebaseWhenTrackingReturns &&
+                NorthLockActive &&
+                hasLastDeviceInEnu)
             {
                 // ARCore can create a new arbitrary tracking-space yaw after a
                 // pause or tracking reset. Rebuild the mapping so the first pose
                 // in the new space lands exactly on the last Earth-facing pose.
-                enuFromTracking = lastDeviceInEnu * Quaternion.Inverse(nextRotation);
+                enuFromTracking =
+                    lastDeviceInEnu * Quaternion.Inverse(nextRotation);
                 rebaseWhenTrackingReturns = false;
             }
 
@@ -296,30 +318,54 @@ namespace GlassGlobe
             rotation = Quaternion.identity;
             if (!trackingDevice.isValid)
             {
-                trackingDevice = InputDevices.GetDeviceAtXRNode(XRNode.CenterEye);
+                trackingDevice =
+                    InputDevices.GetDeviceAtXRNode(XRNode.CenterEye);
             }
 
-            if (!trackingDevice.isValid)
+            if (trackingDevice.isValid)
             {
-                return false;
+                bool isTracked;
+                bool trackingStateAvailable =
+                    trackingDevice.TryGetFeatureValue(
+                        CommonUsages.isTracked,
+                        out isTracked);
+                if ((!trackingStateAvailable || isTracked) &&
+                    trackingDevice.TryGetFeatureValue(
+                        CommonUsages.deviceRotation,
+                        out rotation) &&
+                    TryNormalizeRotation(ref rotation))
+                {
+                    return true;
+                }
             }
 
-            bool isTracked;
-            if (trackingDevice.TryGetFeatureValue(CommonUsages.isTracked, out isTracked) &&
-                !isTracked)
+            // The XR Origin also carries an ARPoseDriver. Reading its transform
+            // is a fallback for devices that expose the pose through the input
+            // subsystem but do not populate XRNode.CenterEye immediately.
+            if (trackingPose != null)
             {
-                return false;
+                rotation = trackingPose.localRotation;
+                if (TryNormalizeRotation(ref rotation))
+                {
+                    return true;
+                }
             }
 
-            if (!trackingDevice.TryGetFeatureValue(CommonUsages.deviceRotation, out rotation))
-            {
-                return false;
-            }
+            rotation = Quaternion.identity;
+            return false;
+        }
 
-            float magnitudeSquared = rotation.x * rotation.x + rotation.y * rotation.y +
-                rotation.z * rotation.z + rotation.w * rotation.w;
-            if (!IsFinite(rotation.x) || !IsFinite(rotation.y) ||
-                !IsFinite(rotation.z) || !IsFinite(rotation.w) ||
+        private static bool TryNormalizeRotation(ref Quaternion rotation)
+        {
+            float magnitudeSquared =
+                rotation.x * rotation.x +
+                rotation.y * rotation.y +
+                rotation.z * rotation.z +
+                rotation.w * rotation.w;
+            if (!IsFinite(rotation.x) ||
+                !IsFinite(rotation.y) ||
+                !IsFinite(rotation.z) ||
+                !IsFinite(rotation.w) ||
                 magnitudeSquared < 0.5f)
             {
                 return false;
@@ -331,8 +377,10 @@ namespace GlassGlobe
 
         private void RememberDevicePose(Quaternion deviceInEnu)
         {
-            if (!IsFinite(deviceInEnu.x) || !IsFinite(deviceInEnu.y) ||
-                !IsFinite(deviceInEnu.z) || !IsFinite(deviceInEnu.w))
+            if (!IsFinite(deviceInEnu.x) ||
+                !IsFinite(deviceInEnu.y) ||
+                !IsFinite(deviceInEnu.z) ||
+                !IsFinite(deviceInEnu.w))
             {
                 return;
             }
@@ -351,6 +399,11 @@ namespace GlassGlobe
             if (cameraManager == null)
             {
                 cameraManager = FindFirstObjectByType<ARCameraManager>();
+            }
+
+            if (trackingPose == null && cameraManager != null)
+            {
+                trackingPose = cameraManager.transform;
             }
         }
 
