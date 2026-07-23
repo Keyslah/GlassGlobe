@@ -5,6 +5,14 @@ namespace GlassGlobe
     [ExecuteAlways]
     public sealed class PhonePoseSimulator : MonoBehaviour
     {
+        // Pixel 8 Pro's usable portrait viewport is approximately 5.8 inches
+        // tall. A typical handheld viewing distance of 13.5 inches yields a
+        // 24.2475-degree vertical field of view.
+        public const float DefaultEyeToPhoneDistanceInches = 13.5f;
+        public const float DefaultPhoneViewportHeightInches = 5.8f;
+        public const float DefaultViewportFovDegrees = 24.2475f;
+        public const float MinimumViewportFovDegrees = 10f;
+
         /// <summary>
         /// Single source of truth for how far the simulated view may tilt from
         /// straight down. The HUD sliders and drag controls share this limit.
@@ -21,10 +29,10 @@ namespace GlassGlobe
         public float observerHeightUnits = 0.35f;
 
         [Min(1f)]
-        public float eyeToPhoneDistanceInches = 10f;
+        public float eyeToPhoneDistanceInches = DefaultEyeToPhoneDistanceInches;
 
         [Min(1f)]
-        public float phoneViewportHeightInches = 5.8f;
+        public float phoneViewportHeightInches = DefaultPhoneViewportHeightInches;
 
         [Range(0f, MaxTiltDegrees)]
         public float tiltDegrees = 45f;
@@ -32,8 +40,8 @@ namespace GlassGlobe
         [Range(0f, 360f)]
         public float headingDegrees = 90f;
 
-        [Range(20f, 100f)]
-        public float cameraFovDegrees = 60f;
+        [Range(MinimumViewportFovDegrees, 100f)]
+        public float cameraFovDegrees = DefaultViewportFovDegrees;
 
         public Camera targetCamera;
         public Transform userPositionMarker;
@@ -80,7 +88,10 @@ namespace GlassGlobe
             phoneViewportHeightInches = Mathf.Max(1f, phoneViewportHeightInches);
             headingDegrees = Mathf.Repeat(headingDegrees, 360f);
             tiltDegrees = Mathf.Clamp(tiltDegrees, 0f, MaxTiltDegrees);
-            cameraFovDegrees = Mathf.Clamp(cameraFovDegrees, 20f, 100f);
+            cameraFovDegrees = Mathf.Clamp(
+                cameraFovDegrees,
+                MinimumViewportFovDegrees,
+                100f);
             ApplyPose();
         }
 
@@ -107,10 +118,13 @@ namespace GlassGlobe
 
             if (Input.touchCount > 0)
             {
-                Touch touch = Input.GetTouch(0);
-                if (touch.phase == TouchPhase.Moved)
+                if (Input.touchCount == 1)
                 {
-                    ApplyDragDelta(touch.deltaPosition);
+                    Touch touch = Input.GetTouch(0);
+                    if (touch.phase == TouchPhase.Moved)
+                    {
+                        ApplyDragDelta(touch.deltaPosition);
+                    }
                 }
 
                 pointerDragging = false;

@@ -66,10 +66,11 @@ namespace GlassGlobe
         private void Awake()
         {
             GlassGlobeSettingsState.Load();
-            WaterVisible = GlassGlobeSettingsState.WaterArtEnabled;
-            LandVisible = GlassGlobeSettingsState.LandArtEnabled;
-            OceanVisible = GlassGlobeSettingsState.OceanArtEnabled;
-            ArtCloudsVisible = GlassGlobeSettingsState.ArtCloudsEnabled;
+            bool categoryEnabled = GlassGlobeSettingsState.EarthStylesCategoryEnabled;
+            WaterVisible = categoryEnabled && GlassGlobeSettingsState.WaterArtEnabled;
+            LandVisible = categoryEnabled && GlassGlobeSettingsState.LandArtEnabled;
+            OceanVisible = categoryEnabled && GlassGlobeSettingsState.OceanArtEnabled;
+            ArtCloudsVisible = categoryEnabled && GlassGlobeSettingsState.ArtCloudsEnabled;
             EarthArtStatus = "Initializing";
             OceanStatus = "Initializing";
             ArtCloudsStatus = "Initializing";

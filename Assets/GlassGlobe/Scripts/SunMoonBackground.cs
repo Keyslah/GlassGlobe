@@ -96,8 +96,10 @@ namespace GlassGlobe
         private void Awake()
         {
             GlassGlobeSettingsState.Load();
-            SunVisible = GlassGlobeSettingsState.SunEnabled;
-            MoonVisible = GlassGlobeSettingsState.MoonEnabled;
+            SunVisible = GlassGlobeSettingsState.BackgroundCategoryEnabled &&
+                GlassGlobeSettingsState.SunEnabled;
+            MoonVisible = GlassGlobeSettingsState.BackgroundCategoryEnabled &&
+                GlassGlobeSettingsState.MoonEnabled;
             SunStatus = "Initializing";
             MoonStatus = "Initializing";
 

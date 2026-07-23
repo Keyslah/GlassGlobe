@@ -24,12 +24,12 @@ namespace GlassGlobe
         [Tooltip("Assigned at scene build time so the legacy feed shader is not stripped from fallback builds.")]
         public Material feedMaterial;
 
-        [Tooltip("Approximate vertical FOV shown in the HUD while the live camera background is visible. ARCore's projection matrix remains authoritative.")]
+        [Tooltip("Vertical FOV used only by the legacy WebCamTexture fallback. ARCore supplies its physical FOV at runtime.")]
         [Range(30f, 100f)]
         public float feedVerticalFovDegrees = 70f;
 
-        [Range(20f, 100f)]
-        public float windowFovDegrees = 32.4f;
+        [Range(PhonePoseSimulator.MinimumViewportFovDegrees, 100f)]
+        public float windowFovDegrees = PhonePoseSimulator.DefaultViewportFovDegrees;
 
         [Tooltip("Optional camera device name used only by the legacy WebCamTexture fallback.")]
         public string preferredDeviceName = string.Empty;
@@ -45,16 +45,60 @@ namespace GlassGlobe
             get { return arCameraManager != null && arCameraManager.enabled; }
         }
         public string FeedStatus { get; private set; }
+        public float ViewportFovDegrees
+        {
+            get
+            {
+                if (FeedActive && arCameraManager != null)
+                {
+                    float baseFov = CurrentArBaseFovDegrees();
+                    return feedDesiredFovInitialized
+                        ? feedDesiredFovDegrees
+                        : ClampFeedFov(windowFovDegrees, baseFov);
+                }
+
+                if (poseSensors != null)
+                {
+                    return poseSensors.cameraFovDegrees;
+                }
+
+                return windowFovDegrees;
+            }
+        }
+        public float NativeViewportFovDegrees
+        {
+            get
+            {
+                if (hasArProjectionMatrix)
+                {
+                    return ProjectionVerticalFov(latestArProjectionMatrix);
+                }
+
+                if (arTrackingCamera != null)
+                {
+                    return ProjectionVerticalFov(arTrackingCamera.projectionMatrix);
+                }
+
+                return feedVerticalFovDegrees;
+            }
+        }
 
         private WebCamTexture webCamTexture;
         private Transform quadTransform;
         private bool permissionRequested;
         private bool wantFeed;
         private bool devicesLogged;
-        private float savedWindowFovDegrees;
-        private bool hasSavedWindowFov;
         private CameraClearFlags savedTargetClearFlags;
         private bool targetRenderStateOverridden;
+        private ARCameraManager subscribedCameraManager;
+        private Matrix4x4 latestArProjectionMatrix;
+        private Matrix4x4 latestArDisplayMatrix;
+        private bool hasArProjectionMatrix;
+        private bool hasArDisplayMatrix;
+        private float feedDesiredFovDegrees;
+        private bool feedDesiredFovInitialized;
+        private static readonly int DisplayTransformId =
+            Shader.PropertyToID("_UnityDisplayTransform");
 
         private void Awake()
         {
@@ -85,6 +129,12 @@ namespace GlassGlobe
             UpdateLegacyWebCamDisplay();
         }
 
+        private void OnDisable()
+        {
+            RestoreRawArDisplayTransform();
+            UnsubscribeFromCameraFrames();
+        }
+
         private void LateUpdate()
         {
             if (!FeedActive ||
@@ -94,15 +144,93 @@ namespace GlassGlobe
                 return;
             }
 
-            // ARCameraManager updates the tracking camera's projection from the
-            // physical lens. Copy it after pose updates so the GlassGlobe overlay
-            // remains aligned whenever the live image is intentionally visible.
-            targetCamera.projectionMatrix = arTrackingCamera.projectionMatrix;
+            Matrix4x4 baseProjection = hasArProjectionMatrix
+                ? latestArProjectionMatrix
+                : arTrackingCamera.projectionMatrix;
+            float baseFov = ProjectionVerticalFov(baseProjection);
+            if (!feedDesiredFovInitialized)
+            {
+                feedDesiredFovDegrees = ClampFeedFov(windowFovDegrees, baseFov);
+                feedDesiredFovInitialized = true;
+            }
+
+            feedDesiredFovDegrees = ClampFeedFov(feedDesiredFovDegrees, baseFov);
+            float desiredFov = feedDesiredFovDegrees;
+
+            float zoomScale = Mathf.Max(
+                1f,
+                Mathf.Tan(baseFov * 0.5f * Mathf.Deg2Rad) /
+                Mathf.Max(0.0001f, Mathf.Tan(desiredFov * 0.5f * Mathf.Deg2Rad)));
+
+            // Match the overlay projection and AR background crop. ARCore's
+            // background shader multiplies row-vector UVs by its display matrix,
+            // so the centered crop matrix belongs on the left.
+            targetCamera.projectionMatrix =
+                Matrix4x4.Scale(new Vector3(zoomScale, zoomScale, 1f)) *
+                baseProjection;
+
+            if (hasArDisplayMatrix && arCameraBackground != null)
+            {
+                Material backgroundMaterial = arCameraBackground.material;
+                if (backgroundMaterial != null)
+                {
+                    float inverseScale = 1f / zoomScale;
+                    float centerOffset = (1f - inverseScale) * 0.5f;
+                    Matrix4x4 crop = Matrix4x4.identity;
+                    crop.m00 = inverseScale;
+                    crop.m11 = inverseScale;
+                    crop.m20 = centerOffset;
+                    crop.m21 = centerOffset;
+                    backgroundMaterial.SetMatrix(
+                        DisplayTransformId,
+                        crop * latestArDisplayMatrix);
+                }
+            }
         }
 
         public void ToggleFeed()
         {
             SetFeedWanted(!wantFeed);
+        }
+
+        public void SetViewportFovDegrees(float value)
+        {
+            if (FeedActive && arCameraManager != null)
+            {
+                Matrix4x4 baseProjection = hasArProjectionMatrix
+                    ? latestArProjectionMatrix
+                    : arTrackingCamera != null
+                        ? arTrackingCamera.projectionMatrix
+                        : Matrix4x4.identity;
+                float baseFov = ProjectionVerticalFov(baseProjection);
+                if (!feedDesiredFovInitialized)
+                {
+                    feedDesiredFovDegrees = ClampFeedFov(windowFovDegrees, baseFov);
+                    feedDesiredFovInitialized = true;
+                }
+
+                feedDesiredFovDegrees = ClampFeedFov(value, baseFov);
+                windowFovDegrees = feedDesiredFovDegrees;
+                if (poseSensors != null)
+                {
+                    poseSensors.cameraFovDegrees = feedDesiredFovDegrees;
+                }
+
+                return;
+            }
+
+            float windowFov = Mathf.Clamp(
+                value,
+                PhonePoseSimulator.MinimumViewportFovDegrees,
+                75f);
+            if (poseSensors != null)
+            {
+                poseSensors.cameraFovDegrees = windowFov;
+            }
+
+            windowFovDegrees = windowFov;
+            feedDesiredFovDegrees = windowFov;
+            feedDesiredFovInitialized = false;
         }
 
         public void SetFeedWanted(bool value)
@@ -130,6 +258,14 @@ namespace GlassGlobe
             if (!arCameraManager.enabled)
             {
                 arCameraManager.enabled = true;
+            }
+
+            // Camera-on digital zoom uses ARCore's display transform. Stabilized
+            // ARCore backgrounds bypass that transform, so keep stabilization off
+            // to preserve camera/overlay registration.
+            if (arCameraManager.imageStabilizationRequested)
+            {
+                arCameraManager.imageStabilizationRequested = false;
             }
 
             bool displayReady =
@@ -227,25 +363,9 @@ namespace GlassGlobe
             }
 
             FeedActive = active;
-            if (poseSensors == null)
+            if (!active)
             {
-                return;
-            }
-
-            if (active)
-            {
-                if (!hasSavedWindowFov)
-                {
-                    savedWindowFovDegrees = poseSensors.cameraFovDegrees;
-                    hasSavedWindowFov = true;
-                }
-
-                poseSensors.cameraFovDegrees = feedVerticalFovDegrees;
-            }
-            else if (hasSavedWindowFov)
-            {
-                poseSensors.cameraFovDegrees = savedWindowFovDegrees;
-                hasSavedWindowFov = false;
+                RestoreRawArDisplayTransform();
             }
         }
 
@@ -320,6 +440,96 @@ namespace GlassGlobe
                 arCameraBackground =
                     arTrackingCamera.GetComponent<ARCameraBackground>();
             }
+
+            RefreshCameraFrameSubscription();
+        }
+
+        private void RefreshCameraFrameSubscription()
+        {
+            if (subscribedCameraManager == arCameraManager)
+            {
+                return;
+            }
+
+            UnsubscribeFromCameraFrames();
+            subscribedCameraManager = arCameraManager;
+            hasArProjectionMatrix = false;
+            hasArDisplayMatrix = false;
+            if (subscribedCameraManager != null)
+            {
+                subscribedCameraManager.frameReceived += OnCameraFrameReceived;
+            }
+        }
+
+        private void UnsubscribeFromCameraFrames()
+        {
+            if (subscribedCameraManager != null)
+            {
+                subscribedCameraManager.frameReceived -= OnCameraFrameReceived;
+                subscribedCameraManager = null;
+            }
+        }
+
+        private void OnCameraFrameReceived(ARCameraFrameEventArgs eventArgs)
+        {
+            if (eventArgs.projectionMatrix.HasValue)
+            {
+                latestArProjectionMatrix = eventArgs.projectionMatrix.Value;
+                hasArProjectionMatrix = true;
+            }
+
+            if (eventArgs.displayMatrix.HasValue)
+            {
+                latestArDisplayMatrix = eventArgs.displayMatrix.Value;
+                hasArDisplayMatrix = true;
+            }
+        }
+
+        private void RestoreRawArDisplayTransform()
+        {
+            if (hasArDisplayMatrix && arCameraBackground != null)
+            {
+                Material backgroundMaterial = arCameraBackground.material;
+                if (backgroundMaterial != null)
+                {
+                    backgroundMaterial.SetMatrix(
+                        DisplayTransformId,
+                        latestArDisplayMatrix);
+                }
+            }
+
+            if (targetCamera != null)
+            {
+                targetCamera.ResetProjectionMatrix();
+            }
+        }
+
+        private static float ProjectionVerticalFov(Matrix4x4 projection)
+        {
+            float inverseM11 = 1f / Mathf.Max(0.0001f, Mathf.Abs(projection.m11));
+            return 2f * Mathf.Atan(inverseM11) * Mathf.Rad2Deg;
+        }
+
+        private float CurrentArBaseFovDegrees()
+        {
+            Matrix4x4 projection = hasArProjectionMatrix
+                ? latestArProjectionMatrix
+                : arTrackingCamera != null
+                    ? arTrackingCamera.projectionMatrix
+                    : Matrix4x4.Perspective(
+                        feedVerticalFovDegrees,
+                        1f,
+                        0.01f,
+                        100f);
+            return ProjectionVerticalFov(projection);
+        }
+
+        private static float ClampFeedFov(float value, float baseFov)
+        {
+            return Mathf.Clamp(
+                value,
+                Mathf.Min(PhonePoseSimulator.MinimumViewportFovDegrees, baseFov),
+                baseFov);
         }
 
         private bool HasCameraPermission()

@@ -12,6 +12,15 @@ namespace GlassGlobe
     [DefaultExecutionOrder(-120)]
     public sealed class ArCoreOrientationTracker : MonoBehaviour
     {
+        // A real handheld turn cannot cover this much angle between normal AR
+        // samples. Keep the threshold deliberately high so a fast intentional
+        // motion still passes through, while an instantaneous tracking-space
+        // relocalization can be rebased before it reaches the globe.
+        private const float SilentRelocalizationMinimumJumpDegrees = 75f;
+        private const float SilentRelocalizationMaximumGapSeconds = 0.15f;
+        private const float CredibleHandheldAngularSpeedDegreesPerSecond = 1080f;
+        private const float SilentRelocalizationAngleAllowanceDegrees = 20f;
+
         public ARSession arSession;
         public ARCameraManager cameraManager;
         public Transform trackingPose;
@@ -29,6 +38,7 @@ namespace GlassGlobe
         private Quaternion lastDeviceInEnu = Quaternion.identity;
         private bool hasLastDeviceInEnu;
         private bool rebaseWhenTrackingReturns;
+        private float lastAcceptedTrackingSampleTime = float.NegativeInfinity;
 
         private void Awake()
         {
@@ -274,6 +284,14 @@ namespace GlassGlobe
             if (!sessionCanTrack ||
                 !TryReadTrackingRotation(out Quaternion nextRotation))
             {
+                if (NorthLockActive &&
+                    TrackingFresh &&
+                    hasCurrentTrackingRotation)
+                {
+                    RememberDevicePose(
+                        enuFromTracking * currentTrackingRotation);
+                }
+
                 TrackingFresh = false;
                 hasCurrentTrackingRotation = false;
                 if (NorthLockActive && hasLastDeviceInEnu)
@@ -291,6 +309,7 @@ namespace GlassGlobe
             }
 
             TrackingAvailable = true;
+            float sampleTime = Time.realtimeSinceStartup;
             if (rebaseWhenTrackingReturns &&
                 NorthLockActive &&
                 hasLastDeviceInEnu)
@@ -302,10 +321,21 @@ namespace GlassGlobe
                     lastDeviceInEnu * Quaternion.Inverse(nextRotation);
                 rebaseWhenTrackingReturns = false;
             }
+            else if (NorthLockActive &&
+                hasLastDeviceInEnu &&
+                IsSilentTrackingSpaceDiscontinuity(nextRotation, sampleTime))
+            {
+                // Some relocalizations arrive without an observable isTracked
+                // false frame. Preserve the last Earth-facing pose across that
+                // otherwise instantaneous tracking-space rotation.
+                enuFromTracking =
+                    lastDeviceInEnu * Quaternion.Inverse(nextRotation);
+            }
 
             currentTrackingRotation = nextRotation;
             hasCurrentTrackingRotation = true;
             TrackingFresh = true;
+            lastAcceptedTrackingSampleTime = sampleTime;
             Status = NorthLockActive
                 ? "AR north lock (camera tracking, background optional)"
                 : "AR tracking ready for Set North";
@@ -327,8 +357,15 @@ namespace GlassGlobe
                     trackingDevice.TryGetFeatureValue(
                         CommonUsages.isTracked,
                         out isTracked);
-                if ((!trackingStateAvailable || isTracked) &&
-                    trackingDevice.TryGetFeatureValue(
+                if (trackingStateAvailable && !isTracked)
+                {
+                    // An explicit XR tracking loss is authoritative. The
+                    // ARPoseDriver transform can retain or reset a stale pose,
+                    // so it must not be accepted through the fallback below.
+                    return false;
+                }
+
+                if (trackingDevice.TryGetFeatureValue(
                         CommonUsages.deviceRotation,
                         out rotation) &&
                     TryNormalizeRotation(ref rotation))
@@ -338,8 +375,8 @@ namespace GlassGlobe
             }
 
             // The XR Origin also carries an ARPoseDriver. Reading its transform
-            // is a fallback for devices that expose the pose through the input
-            // subsystem but do not populate XRNode.CenterEye immediately.
+            // is a fallback only when XR did not explicitly report tracking
+            // loss, for devices that do not populate CenterEye immediately.
             if (trackingPose != null)
             {
                 rotation = trackingPose.localRotation;
@@ -351,6 +388,32 @@ namespace GlassGlobe
 
             rotation = Quaternion.identity;
             return false;
+        }
+
+        private bool IsSilentTrackingSpaceDiscontinuity(
+            Quaternion nextRotation,
+            float sampleTime)
+        {
+            if (!TrackingFresh ||
+                !hasCurrentTrackingRotation ||
+                !IsFinite(lastAcceptedTrackingSampleTime))
+            {
+                return false;
+            }
+
+            float sampleGap = sampleTime - lastAcceptedTrackingSampleTime;
+            if (sampleGap <= 0f ||
+                sampleGap > SilentRelocalizationMaximumGapSeconds)
+            {
+                return false;
+            }
+
+            float credibleMotionLimit = Mathf.Max(
+                SilentRelocalizationMinimumJumpDegrees,
+                SilentRelocalizationAngleAllowanceDegrees +
+                CredibleHandheldAngularSpeedDegreesPerSecond * sampleGap);
+            return Quaternion.Angle(currentTrackingRotation, nextRotation) >
+                credibleMotionLimit;
         }
 
         private static bool TryNormalizeRotation(ref Quaternion rotation)

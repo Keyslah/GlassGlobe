@@ -44,7 +44,8 @@ namespace GlassGlobe
         private void Awake()
         {
             GlassGlobeSettingsState.Load();
-            Visible = GlassGlobeSettingsState.MilkyWayEnabled;
+            Visible = GlassGlobeSettingsState.BackgroundCategoryEnabled &&
+                GlassGlobeSettingsState.MilkyWayEnabled;
             StatusText = "Initializing";
             // The photographic panorama contains fine, curved dust lanes.
             // Keep enough sphere tessellation that its equirectangular mapping

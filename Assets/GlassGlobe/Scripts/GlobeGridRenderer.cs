@@ -22,8 +22,15 @@ namespace GlassGlobe
         public float surfaceOffset = 0.045f;
         public float lineWidth = 0.018f;
         public bool gridVisible = true;
+        public bool hideNearHemisphere = true;
         [Range(0.25f, 3f)]
         public float gridThickness = 1f;
+
+        private static readonly int ClipNearHemisphereId =
+            Shader.PropertyToID("_ClipNearHemisphere");
+        private static readonly int GlobeCenterId =
+            Shader.PropertyToID("_GlobeCenter");
+        private MaterialPropertyBlock gridPropertyBlock;
 
         private void OnEnable()
         {
@@ -31,6 +38,13 @@ namespace GlassGlobe
             {
                 RebuildGrid();
             }
+
+            ApplyGridPropertyBlocks();
+        }
+
+        private void OnValidate()
+        {
+            ApplyGridPropertyBlocks();
         }
 
         public void RebuildGrid()
@@ -76,6 +90,8 @@ namespace GlassGlobe
 
                 CreateLine("Grid - Latitude " + latitude.ToString("0"), points, true);
             }
+
+            ApplyGridPropertyBlocks();
         }
 
         public void SetGridColor(Color color)
@@ -147,6 +163,42 @@ namespace GlassGlobe
             line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             line.receiveShadows = false;
             line.sharedMaterial = gridMaterial;
+            ApplyGridPropertyBlock(line);
+        }
+
+        private void ApplyGridPropertyBlocks()
+        {
+            for (int index = 0; index < transform.childCount; index++)
+            {
+                LineRenderer line = transform.GetChild(index).GetComponent<LineRenderer>();
+                if (line != null)
+                {
+                    ApplyGridPropertyBlock(line);
+                }
+            }
+        }
+
+        private void ApplyGridPropertyBlock(LineRenderer line)
+        {
+            if (line == null)
+            {
+                return;
+            }
+
+            if (gridPropertyBlock == null)
+            {
+                gridPropertyBlock = new MaterialPropertyBlock();
+            }
+
+            gridPropertyBlock.Clear();
+            gridPropertyBlock.SetFloat(
+                ClipNearHemisphereId,
+                hideNearHemisphere ? 1f : 0f);
+            Vector3 center = globe != null ? globe.Center : Vector3.zero;
+            gridPropertyBlock.SetVector(
+                GlobeCenterId,
+                new Vector4(center.x, center.y, center.z, 0f));
+            line.SetPropertyBlock(gridPropertyBlock);
         }
 
         private void ClearGrid()

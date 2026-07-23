@@ -26,7 +26,8 @@ namespace GlassGlobe
             if (phonePose != null)
             {
                 errors += Require(phonePose.targetCamera != null, "GlassGlobe validation failed: PhonePoseSimulator is missing targetCamera.");
-                errors += Require(phonePose.eyeToPhoneDistanceInches >= 9f && phonePose.eyeToPhoneDistanceInches <= 11f, "GlassGlobe validation failed: phone viewport baseline should be about 10 inches from the face.");
+                errors += Require(phonePose.eyeToPhoneDistanceInches >= 12.5f && phonePose.eyeToPhoneDistanceInches <= 14.5f, "GlassGlobe validation failed: phone viewport baseline should be about 13.5 inches from the face.");
+                errors += Require(phonePose.PhysicalViewportFovDegrees >= 23f && phonePose.PhysicalViewportFovDegrees <= 26f, "GlassGlobe validation failed: default viewport FOV should approximate handheld physical scale.");
             }
 
             errors += Require(FindFirstObjectByType<FarSideRaycaster>() != null, "GlassGlobe validation failed: missing FarSideRaycaster.");

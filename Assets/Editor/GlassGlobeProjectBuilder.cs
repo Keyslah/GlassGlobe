@@ -72,7 +72,7 @@ public static class GlassGlobeProjectBuilder
         Camera camera = cameraObject.AddComponent<Camera>();
         camera.clearFlags = CameraClearFlags.SolidColor;
         camera.backgroundColor = new Color(0.005f, 0.007f, 0.01f, 1f);
-        camera.fieldOfView = 32.4f;
+        camera.fieldOfView = PhonePoseSimulator.DefaultViewportFovDegrees;
         camera.nearClipPlane = 0.01f;
         camera.farClipPlane = 120f;
         cameraObject.AddComponent<AudioListener>();
@@ -92,8 +92,8 @@ public static class GlassGlobeProjectBuilder
         phonePose.earthCenter = globe.Center;
         phonePose.earthRadiusUnits = globe.RadiusUnits;
         phonePose.observerHeightUnits = 0.35f;
-        phonePose.eyeToPhoneDistanceInches = 10f;
-        phonePose.phoneViewportHeightInches = 5.8f;
+        phonePose.eyeToPhoneDistanceInches = PhonePoseSimulator.DefaultEyeToPhoneDistanceInches;
+        phonePose.phoneViewportHeightInches = PhonePoseSimulator.DefaultPhoneViewportHeightInches;
         phonePose.headingDegrees = 120f;
         phonePose.tiltDegrees = 45f;
         phonePose.UsePhysicalViewportFov();
@@ -109,13 +109,13 @@ public static class GlassGlobeProjectBuilder
         poseSensors.localUpLine = localUpLine;
         poseSensors.localDownLine = localDownLine;
         poseSensors.observerHeightUnits = 0.35f;
-        poseSensors.cameraFovDegrees = 32.4f;
+        poseSensors.cameraFovDegrees = PhonePoseSimulator.DefaultViewportFovDegrees;
 
         CameraFeedRenderer cameraFeed = cameraObject.AddComponent<CameraFeedRenderer>();
         cameraFeed.targetCamera = camera;
         cameraFeed.poseSensors = poseSensors;
         cameraFeed.feedVerticalFovDegrees = 70f;
-        cameraFeed.windowFovDegrees = 32.4f;
+        cameraFeed.windowFovDegrees = PhonePoseSimulator.DefaultViewportFovDegrees;
         cameraFeed.startEnabledOnDevice = true;
 
         Shader feedShader = Shader.Find("GlassGlobe/Camera Feed");
