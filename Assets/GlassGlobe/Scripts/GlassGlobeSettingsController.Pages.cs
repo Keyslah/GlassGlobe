@@ -9,63 +9,6 @@ namespace GlassGlobe
     /// </summary>
     public sealed partial class GlassGlobeSettingsController
     {
-        private void DrawSettingsEntryButton()
-        {
-            float elapsed = Time.unscaledTime - lastInteractionTime;
-            float alpha = 1f;
-            if (elapsed > settingsButtonVisibleSeconds)
-            {
-                alpha = 1f - (elapsed - settingsButtonVisibleSeconds) / Mathf.Max(0.05f, settingsButtonFadeSeconds);
-            }
-
-            alpha = Mathf.Clamp01(alpha);
-            if (alpha <= 0.01f)
-            {
-                return;
-            }
-
-            Rect safeArea = Screen.safeArea;
-            float minimumTouchHeight = Application.isMobilePlatform && Screen.dpi > 0f
-                ? Mathf.Clamp(Screen.dpi * 0.3f, 48f, 144f)
-                : 48f;
-            float height = Mathf.Max(
-                Mathf.Clamp(Screen.height * 0.06f, 48f, 72f),
-                minimumTouchHeight);
-            float maximumWidth = Mathf.Max(120f, safeArea.width - 40f);
-            float minimumWidth = Mathf.Min(maximumWidth, Mathf.Max(132f, height * 2f));
-            float width = Mathf.Clamp(
-                Screen.width * 0.26f,
-                minimumWidth,
-                Mathf.Min(280f, maximumWidth));
-            float safeBottom = Screen.height - safeArea.yMin;
-            Rect buttonRect = new Rect(
-                safeArea.xMax - width - 20f,
-                safeBottom - height - 24f,
-                width,
-                height);
-
-            Color previousColor = GUI.color;
-            bool previousEnabled = GUI.enabled;
-            GUI.color = new Color(previousColor.r, previousColor.g, previousColor.b, previousColor.a * alpha);
-            GUI.enabled = alpha > 0.15f;
-            entryButtonStyle.fontSize = Application.isMobilePlatform
-                ? Mathf.RoundToInt(buttonStyle.fontSize * GlassGlobeUi.GetMobileUiScale())
-                : buttonStyle.fontSize;
-            bool clicked = GUI.Button(buttonRect, "Settings", entryButtonStyle);
-            GUI.enabled = previousEnabled;
-            GUI.color = previousColor;
-
-            if (alpha > 0.15f)
-            {
-                RegisterScreenTouch(buttonRect, OpenSettings);
-            }
-
-            if (clicked && !Application.isMobilePlatform)
-            {
-                OpenSettings();
-            }
-        }
-
         private void DrawSettingsPage()
         {
             if (currentPage == SettingsPage.OrientCapture)
@@ -112,9 +55,6 @@ namespace GlassGlobe
                 case SettingsPage.Settings:
                     DrawSettingsHome();
                     break;
-                case SettingsPage.Camera:
-                    DrawCameraPage();
-                    break;
                 case SettingsPage.Viewpoint:
                     DrawViewpointPage();
                     break;
@@ -150,45 +90,71 @@ namespace GlassGlobe
         {
             GUILayout.Label("Settings", titleStyle);
             GUILayout.Space(8f);
-            DrawButton("Back to Viewpoint", BackToViewpoint, 46f);
+            DrawButton("Back to Viewport", BackToViewpoint, 46f);
+            GUILayout.Space(8f);
+            DrawButton("Set North", AlignPhoneToNorth, 50f);
+            if (!string.IsNullOrEmpty(orientStatusMessage))
+            {
+                GUILayout.Space(6f);
+                GUILayout.Label(orientStatusMessage, statusStyle);
+            }
+
             GUILayout.Space(18f);
             GUILayout.Label("Choose a settings category", bodyStyle);
             GUILayout.Space(10f);
-            DrawButton("Camera", delegate { ShowPage(SettingsPage.Camera); }, 58f);
-            GUILayout.Space(8f);
-            DrawButton("Viewpoint", delegate { ShowPage(SettingsPage.Viewpoint); }, 58f);
-            GUILayout.Space(8f);
-            DrawButton("Background", delegate { ShowPage(SettingsPage.Background); }, 58f);
-            GUILayout.Space(8f);
-            DrawButton("Display", delegate { ShowPage(SettingsPage.Display); }, 58f);
-            GUILayout.Space(8f);
-            DrawButton("Earth Styles", delegate { ShowPage(SettingsPage.EarthStyles); }, 58f);
-            GUILayout.Space(8f);
-            DrawButton("Weather", delegate { ShowPage(SettingsPage.Weather); }, 58f);
-            GUILayout.Space(8f);
-            DrawButton("Live Data", delegate { ShowPage(SettingsPage.LiveData); }, 58f);
-            GUILayout.Space(8f);
-            DrawButton("Orient", delegate { ShowPage(SettingsPage.Orient); }, 58f);
-            GUILayout.Space(8f);
-            DrawButton("Privacy", delegate { ShowPage(SettingsPage.Privacy); }, 58f);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label("Additional settings categories can be added without changing this navigation pattern.", bodyStyle);
-        }
-
-        private void DrawCameraPage()
-        {
-            DrawCategoryHeader("Camera");
-            GUILayout.Space(18f);
-            GUILayout.Label("Camera feed", headingStyle);
-            GUILayout.Label("Controls the rear-camera background behind the Earth overlay.", bodyStyle);
-            GUILayout.Space(10f);
-            DrawCheckbox(
-                "Camera enabled",
+            DrawSettingsCategoryRow(
+                "Camera",
                 GlassGlobeSettingsState.CameraFeedEnabled,
-                delegate { SetCameraFeedEnabled(!GlassGlobeSettingsState.CameraFeedEnabled); });
-            GUILayout.Space(12f);
-            string feedStatus = cameraFeed != null ? cameraFeed.FeedStatus : "Camera component not found";
-            GUILayout.Label("Status: " + feedStatus, statusStyle);
+                delegate { SetCameraFeedEnabled(!GlassGlobeSettingsState.CameraFeedEnabled); },
+                null);
+            GUILayout.Space(8f);
+            DrawSettingsCategoryRow(
+                "Viewpoint",
+                GlassGlobeSettingsState.ViewpointCategoryEnabled,
+                delegate { SetSettingsCategoryEnabled(SettingsPage.Viewpoint, !GlassGlobeSettingsState.ViewpointCategoryEnabled); },
+                delegate { ShowPage(SettingsPage.Viewpoint); });
+            GUILayout.Space(8f);
+            DrawSettingsCategoryRow(
+                "Background",
+                GlassGlobeSettingsState.BackgroundCategoryEnabled,
+                delegate { SetSettingsCategoryEnabled(SettingsPage.Background, !GlassGlobeSettingsState.BackgroundCategoryEnabled); },
+                delegate { ShowPage(SettingsPage.Background); });
+            GUILayout.Space(8f);
+            DrawSettingsCategoryRow(
+                "Display",
+                GlassGlobeSettingsState.DisplayCategoryEnabled,
+                delegate { SetSettingsCategoryEnabled(SettingsPage.Display, !GlassGlobeSettingsState.DisplayCategoryEnabled); },
+                delegate { ShowPage(SettingsPage.Display); });
+            GUILayout.Space(8f);
+            DrawSettingsCategoryRow(
+                "Earth Styles",
+                GlassGlobeSettingsState.EarthStylesCategoryEnabled,
+                delegate { SetSettingsCategoryEnabled(SettingsPage.EarthStyles, !GlassGlobeSettingsState.EarthStylesCategoryEnabled); },
+                delegate { ShowPage(SettingsPage.EarthStyles); });
+            GUILayout.Space(8f);
+            DrawSettingsCategoryRow(
+                "Weather",
+                GlassGlobeSettingsState.WeatherCategoryEnabled,
+                delegate { SetSettingsCategoryEnabled(SettingsPage.Weather, !GlassGlobeSettingsState.WeatherCategoryEnabled); },
+                delegate { ShowPage(SettingsPage.Weather); });
+            GUILayout.Space(8f);
+            DrawSettingsCategoryRow(
+                "Live Data",
+                GlassGlobeSettingsState.LiveDataCategoryEnabled,
+                delegate { SetSettingsCategoryEnabled(SettingsPage.LiveData, !GlassGlobeSettingsState.LiveDataCategoryEnabled); },
+                delegate { ShowPage(SettingsPage.LiveData); });
+            GUILayout.Space(8f);
+            DrawSettingsCategoryRow(
+                "Orient",
+                GlassGlobeSettingsState.OrientCategoryEnabled,
+                delegate { SetSettingsCategoryEnabled(SettingsPage.Orient, !GlassGlobeSettingsState.OrientCategoryEnabled); },
+                delegate { ShowPage(SettingsPage.Orient); });
+            GUILayout.Space(8f);
+            DrawSettingsCategoryRow(
+                "Privacy",
+                GlassGlobeSettingsState.PrivacyCategoryEnabled,
+                delegate { SetSettingsCategoryEnabled(SettingsPage.Privacy, !GlassGlobeSettingsState.PrivacyCategoryEnabled); },
+                delegate { ShowPage(SettingsPage.Privacy); });
         }
 
         private void DrawBackgroundPage()
@@ -235,15 +201,9 @@ namespace GlassGlobe
                 delegate { GlassGlobeSettingsState.SetMainHudVisible(!GlassGlobeSettingsState.MainHudVisible); });
             GUILayout.Space(6f);
             DrawCheckbox(
-                "Country name",
-                GlassGlobeSettingsState.CountryBannerVisible,
-                delegate { GlassGlobeSettingsState.SetCountryBannerVisible(!GlassGlobeSettingsState.CountryBannerVisible); });
-            GUILayout.Space(6f);
-            DrawCheckbox(
-                "Country name at top",
-                GlassGlobeSettingsState.CountryBannerAtTop,
-                delegate { GlassGlobeSettingsState.SetCountryBannerAtTop(!GlassGlobeSettingsState.CountryBannerAtTop); });
-            GUILayout.Label("Uncheck to place the country name at the bottom.", bodyStyle);
+                "Set North",
+                GlassGlobeSettingsState.ShowSetNorthButton,
+                delegate { GlassGlobeSettingsState.SetShowSetNorthButton(!GlassGlobeSettingsState.ShowSetNorthButton); });
 
             GUILayout.Space(18f);
             GUILayout.Label("Country outline color", headingStyle);
@@ -326,83 +286,43 @@ namespace GlassGlobe
         {
             DrawCategoryHeader("Earth Styles");
             GUILayout.Space(18f);
-            GUILayout.Label("Globe appearance", headingStyle);
-            GUILayout.Label(
-                "Night Lights paints real city lights from NASA's Black Marble map onto the glass Earth. Rim Glow adds a soft halo around the Earth's edge so it reads as a glass sphere.",
-                bodyStyle);
+            GUILayout.Label("Earth appearance", headingStyle);
             GUILayout.Space(10f);
             DrawCheckbox(
-                "Night Lights (city lights)",
-                GlassGlobeSettingsState.NightLightsEnabled,
-                delegate { SetNightLightsEnabled(!GlassGlobeSettingsState.NightLightsEnabled); });
-            GUILayout.Space(6f);
-            DrawCheckbox(
-                "Rim Glow (glass edge)",
-                GlassGlobeSettingsState.RimGlowEnabled,
-                delegate { SetRimGlowEnabled(!GlassGlobeSettingsState.RimGlowEnabled); });
-            GUILayout.Space(12f);
-            string nightStatus = earthStyle != null ? earthStyle.NightLightsStatus : "Earth style component not found";
-            GUILayout.Label("Night Lights: " + nightStatus, statusStyle);
-            string rimStatus = earthStyle != null ? earthStyle.RimGlowStatus : "Earth style component not found";
-            GUILayout.Label("Rim Glow: " + rimStatus, statusStyle);
-
-            GUILayout.Space(16f);
-            GUILayout.Label("Dreamy Earth art", headingStyle);
-            GUILayout.Label(
-                "Stylized shimmering water and soft drifting land colors on the far side, plus art clouds shaped by the live satellite cloud field that creep along so slowly you only catch the motion by staring.",
-                bodyStyle);
-            GUILayout.Space(10f);
-            DrawCheckbox(
-                "Shimmering water",
+                "Water",
                 GlassGlobeSettingsState.WaterArtEnabled,
                 delegate { SetWaterArtEnabled(!GlassGlobeSettingsState.WaterArtEnabled); });
             DrawOpacityRow(
                 "Water opacity",
                 GlassGlobeSettingsState.WaterArtOpacity,
-                delegate (float value) { GlassGlobeSettingsState.SetWaterArtOpacity(value); MarkEarthArtDirty(); });
+                delegate (float value)
+                {
+                    GlassGlobeSettingsState.SetWaterArtOpacity(value);
+                    MarkEarthArtDirty();
+                });
             GUILayout.Space(6f);
             DrawCheckbox(
-                "Dreamy land",
+                "Land",
                 GlassGlobeSettingsState.LandArtEnabled,
                 delegate { SetLandArtEnabled(!GlassGlobeSettingsState.LandArtEnabled); });
             DrawOpacityRow(
                 "Land opacity",
                 GlassGlobeSettingsState.LandArtOpacity,
-                delegate (float value) { GlassGlobeSettingsState.SetLandArtOpacity(value); MarkEarthArtDirty(); });
-            GUILayout.Space(6f);
-            DrawCheckbox(
-                "Stylized ocean (glinting water)",
-                GlassGlobeSettingsState.OceanArtEnabled,
-                delegate { SetOceanArtEnabled(!GlassGlobeSettingsState.OceanArtEnabled); });
-            DrawOpacityRow(
-                "Ocean opacity",
-                GlassGlobeSettingsState.OceanArtOpacity,
-                delegate (float value) { GlassGlobeSettingsState.SetOceanArtOpacity(value); MarkEarthArtDirty(); });
-            GUILayout.Space(6f);
-            DrawCheckbox(
-                "Art clouds (slow drift)",
-                GlassGlobeSettingsState.ArtCloudsEnabled,
-                delegate { SetArtCloudsEnabled(!GlassGlobeSettingsState.ArtCloudsEnabled); });
-            DrawOpacityRow(
-                "Cloud opacity",
-                GlassGlobeSettingsState.ArtCloudsOpacity,
-                delegate (float value) { GlassGlobeSettingsState.SetArtCloudsOpacity(value); MarkEarthArtDirty(); });
-            GUILayout.Space(12f);
-            string earthArtStatus = earthArt != null ? earthArt.EarthArtStatus : "Earth art component not found";
-            GUILayout.Label("Earth art: " + earthArtStatus, statusStyle);
-            string oceanStatus = earthArt != null ? earthArt.OceanStatus : "Earth art component not found";
-            GUILayout.Label("Stylized ocean: " + oceanStatus, statusStyle);
-            string artCloudsStatus = earthArt != null ? earthArt.ArtCloudsStatus : "Earth art component not found";
-            GUILayout.Label("Art clouds: " + artCloudsStatus, statusStyle);
+                delegate (float value)
+                {
+                    GlassGlobeSettingsState.SetLandArtOpacity(value);
+                    MarkEarthArtDirty();
+                });
         }
 
         private void DrawOpacityRow(string label, float value, Action<float> setter)
         {
+            GUILayout.Space(6f);
             GUILayout.BeginHorizontal();
             GUILayout.Label(
                 string.Format("{0}: {1:0}%", label, value * 100f),
                 bodyStyle,
-                GUILayout.Width(200f));
+                GUILayout.Width(220f));
             float capturedValue = value;
             DrawButton("-", delegate { setter(capturedValue - 0.1f); }, 38f);
             GUILayout.Space(6f);
@@ -592,9 +512,56 @@ namespace GlassGlobe
             GUILayout.Label(title, titleStyle);
             GUILayout.Space(6f);
             GUILayout.BeginHorizontal();
-            DrawButton("Back to Viewpoint", BackToViewpoint, 44f);
+            DrawButton("Back to Viewport", BackToViewpoint, 44f);
             GUILayout.Space(8f);
             DrawButton("Back to Settings", delegate { ShowPage(SettingsPage.Settings); }, 44f);
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawSettingsCategoryRow(
+            string label,
+            bool enabled,
+            Action toggleAction,
+            Action openAction)
+        {
+            float controlHeight = GlassGlobeUi.GetInteractiveControlHeight(52f);
+            GUILayout.BeginHorizontal();
+
+            bool checkboxClicked = GUILayout.Button(
+                enabled ? "[x]" : "[ ]",
+                buttonStyle,
+                GUILayout.Width(64f),
+                GUILayout.Height(controlHeight));
+            Rect checkboxRect = GUILayoutUtility.GetLastRect();
+            RegisterLocalTouch(checkboxRect, toggleAction);
+            if (checkboxClicked && !Application.isMobilePlatform)
+            {
+                toggleAction();
+            }
+
+            GUILayout.Space(8f);
+            GUILayout.Label(
+                label,
+                headingStyle,
+                GUILayout.Height(controlHeight),
+                GUILayout.ExpandWidth(true));
+
+            if (openAction != null)
+            {
+                GUILayout.Space(8f);
+                bool openClicked = GUILayout.Button(
+                    "Open",
+                    buttonStyle,
+                    GUILayout.Width(92f),
+                    GUILayout.Height(controlHeight));
+                Rect openRect = GUILayoutUtility.GetLastRect();
+                RegisterLocalTouch(openRect, openAction);
+                if (openClicked && !Application.isMobilePlatform)
+                {
+                    openAction();
+                }
+            }
+
             GUILayout.EndHorizontal();
         }
 

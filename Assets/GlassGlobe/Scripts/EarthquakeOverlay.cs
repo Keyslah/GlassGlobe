@@ -81,7 +81,8 @@ namespace GlassGlobe
         private void Awake()
         {
             GlassGlobeSettingsState.Load();
-            EarthquakesVisible = GlassGlobeSettingsState.EarthquakesEnabled;
+            EarthquakesVisible = GlassGlobeSettingsState.LiveDataCategoryEnabled &&
+                GlassGlobeSettingsState.EarthquakesEnabled;
             Status = "Initializing";
 
             if (globe == null)

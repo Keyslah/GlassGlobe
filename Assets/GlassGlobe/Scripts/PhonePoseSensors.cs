@@ -28,8 +28,8 @@ namespace GlassGlobe
         [Min(0f)]
         public float observerHeightUnits = 0.35f;
 
-        [Range(20f, 100f)]
-        public float cameraFovDegrees = 32.4f;
+        [Range(PhonePoseSimulator.MinimumViewportFovDegrees, 100f)]
+        public float cameraFovDegrees = PhonePoseSimulator.DefaultViewportFovDegrees;
 
         [Range(0f, 1f)]
         public float attitudeSmoothing = 0.35f;
@@ -66,19 +66,33 @@ namespace GlassGlobe
         }
         public bool ArNorthLockActive
         {
-            get { return arCoreTracking != null && arCoreTracking.NorthLockActive; }
+            get
+            {
+                return GlassGlobeSettingsState.OrientCategoryEnabled &&
+                    arCoreTracking != null &&
+                    arCoreTracking.NorthLockActive;
+            }
         }
         // Kept for the existing HUD/settings API. It now means any stable North
         // lock, with ARCore preferred and the gyro-only path used only as fallback.
         public bool GyroNorthLockActive
         {
-            get { return ArNorthLockActive || gyroFallbackNorthLockActive; }
+            get
+            {
+                return GlassGlobeSettingsState.OrientCategoryEnabled &&
+                    (ArNorthLockActive || gyroFallbackNorthLockActive);
+            }
         }
         public string OrientationStatus { get; private set; }
         public float ActiveHeadingCorrectionDegrees
         {
             get
             {
+                if (!GlassGlobeSettingsState.OrientCategoryEnabled)
+                {
+                    return 0f;
+                }
+
                 if (ArNorthLockActive)
                 {
                     return arCoreTracking.HeadingCorrectionDegrees;
@@ -125,7 +139,7 @@ namespace GlassGlobe
                 return;
             }
 
-            if (GlassGlobeSettingsState.ViewpointOverrideEnabled)
+            if (GlassGlobeSettingsState.EffectiveViewpointOverrideEnabled)
             {
                 CurrentCoordinate = GlassGlobeSettingsState.ViewpointCoordinate;
                 LocationStatus = "Viewpoint override";
@@ -153,7 +167,7 @@ namespace GlassGlobe
                     ? "Automatic compass (gyro fallback ready)"
                     : "Automatic compass";
 
-            if (!GlassGlobeSettingsState.ViewpointOverrideEnabled)
+            if (!GlassGlobeSettingsState.EffectiveViewpointOverrideEnabled)
             {
                 RequestLocationPermissionIfNeeded();
             }
@@ -246,6 +260,11 @@ namespace GlassGlobe
 
         public void NudgeHeading(float degrees)
         {
+            if (!GlassGlobeSettingsState.OrientCategoryEnabled)
+            {
+                return;
+            }
+
             if (float.IsNaN(degrees) || float.IsInfinity(degrees))
             {
                 return;
@@ -272,6 +291,12 @@ namespace GlassGlobe
         public bool TryAlignCurrentHeadingToNorth(out float correctionDegrees)
         {
             correctionDegrees = 0f;
+            if (!GlassGlobeSettingsState.OrientCategoryEnabled)
+            {
+                OrientationStatus = "Orient settings disabled";
+                return false;
+            }
+
 
             // If an AR tracker is present, do not silently drop back to the
             // drifting gyro frame while ARCore is merely initializing. The user
@@ -453,7 +478,7 @@ namespace GlassGlobe
         private void UpdateLocation()
         {
             GlassGlobeSettingsState.Load();
-            if (GlassGlobeSettingsState.ViewpointOverrideEnabled)
+            if (GlassGlobeSettingsState.EffectiveViewpointOverrideEnabled)
             {
                 CurrentCoordinate = GlassGlobeSettingsState.ViewpointCoordinate;
                 HasLocationFix = false;
@@ -571,7 +596,7 @@ namespace GlassGlobe
                     ? "AR north lock (orientation frozen; tracking waiting)"
                     : arCoreTracking.Status;
             }
-            else if (gyroFallbackNorthLockActive)
+            else if (GlassGlobeSettingsState.OrientCategoryEnabled && gyroFallbackNorthLockActive)
             {
                 if (!hasCurrentGameDeviceInEnu)
                 {
@@ -601,8 +626,11 @@ namespace GlassGlobe
                 deviceInEnu = Quaternion.Euler(90f, 0f, 0f) *
                     new Quaternion(raw.x, raw.y, -raw.z, -raw.w);
                 UpdateCompassCorrection(deviceInEnu);
-                totalYawCorrection = CompassCorrectionDegrees + headingOffsetDegrees;
-                OrientationStatus = gyroNorthLockNeedsReset
+                totalYawCorrection = CompassCorrectionDegrees +
+                    (GlassGlobeSettingsState.OrientCategoryEnabled ? headingOffsetDegrees : 0f);
+                OrientationStatus = !GlassGlobeSettingsState.OrientCategoryEnabled
+                    ? "Automatic compass (Orient settings disabled)"
+                    : gyroNorthLockNeedsReset
                     ? "Automatic compass (Set North again after resume)"
                     : arCoreTracking != null
                         ? arCoreTracking.TrackingFresh

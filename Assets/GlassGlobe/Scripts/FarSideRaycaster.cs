@@ -11,6 +11,7 @@ namespace GlassGlobe
         public LineRenderer centerRayLine;
         public Transform nearSideMarker;
         public Transform farSideMarker;
+        public bool showNearSideMarker;
         public float missRayLength = 40f;
 
         public bool HasIntersection { get; private set; }
@@ -127,8 +128,9 @@ namespace GlassGlobe
 
             if (nearSideMarker != null)
             {
-                nearSideMarker.gameObject.SetActive(HasIntersection);
-                if (HasIntersection)
+                bool nearMarkerVisible = showNearSideMarker && HasIntersection;
+                nearSideMarker.gameObject.SetActive(nearMarkerVisible);
+                if (nearMarkerVisible)
                 {
                     nearSideMarker.position = NearSidePoint;
                 }

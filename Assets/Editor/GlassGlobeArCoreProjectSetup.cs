@@ -30,7 +30,7 @@ public static class GlassGlobeArCoreProjectSetup
         }
 
         XRGeneralSettingsPerBuildTarget perBuildTarget =
-            XRGeneralSettingsPerBuildTarget.GetOrCreate();
+            GetOrCreateGeneralSettings();
         if (!perBuildTarget.HasSettingsForBuildTarget(BuildTargetGroup.Android))
         {
             perBuildTarget.CreateDefaultSettingsForBuildTarget(
@@ -93,6 +93,7 @@ public static class GlassGlobeArCoreProjectSetup
         PlayerSettings.SetGraphicsAPIs(
             BuildTarget.Android,
             new[] { GraphicsDeviceType.OpenGLES3 });
+        PlayerSettings.Android.optimizedFramePacing = false;
 
         EditorUtility.SetDirty(perBuildTarget);
         EditorUtility.SetDirty(generalSettings);
@@ -109,5 +110,37 @@ public static class GlassGlobeArCoreProjectSetup
             Debug.LogWarning(
                 "GlassGlobe ARCore setup: loader metadata is not ready yet. Close XR Plug-in Management if it is open, then run GlassGlobe/Configure Invisible ARCore Tracking.");
         }
+    }
+
+    private static XRGeneralSettingsPerBuildTarget GetOrCreateGeneralSettings()
+    {
+        string[] settingsGuids =
+            AssetDatabase.FindAssets("t:XRGeneralSettingsPerBuildTarget");
+        if (settingsGuids.Length > 0)
+        {
+            string settingsPath = AssetDatabase.GUIDToAssetPath(settingsGuids[0]);
+            return AssetDatabase.LoadAssetAtPath<XRGeneralSettingsPerBuildTarget>(
+                settingsPath);
+        }
+
+        const string xrFolder = "Assets/XR";
+        const string settingsFolder = "Assets/XR/Settings";
+        if (!AssetDatabase.IsValidFolder(xrFolder))
+        {
+            AssetDatabase.CreateFolder("Assets", "XR");
+        }
+
+        if (!AssetDatabase.IsValidFolder(settingsFolder))
+        {
+            AssetDatabase.CreateFolder(xrFolder, "Settings");
+        }
+
+        XRGeneralSettingsPerBuildTarget settings =
+            ScriptableObject.CreateInstance<XRGeneralSettingsPerBuildTarget>();
+        AssetDatabase.CreateAsset(
+            settings,
+            settingsFolder + "/XRGeneralSettingsPerBuildTarget.asset");
+        AssetDatabase.SaveAssets();
+        return settings;
     }
 }

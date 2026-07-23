@@ -56,7 +56,8 @@ namespace GlassGlobe
         private void Awake()
         {
             GlassGlobeSettingsState.Load();
-            SatellitesVisible = GlassGlobeSettingsState.SatellitesEnabled;
+            SatellitesVisible = GlassGlobeSettingsState.LiveDataCategoryEnabled &&
+                GlassGlobeSettingsState.SatellitesEnabled;
             Status = "Initializing";
 
             if (globe == null)

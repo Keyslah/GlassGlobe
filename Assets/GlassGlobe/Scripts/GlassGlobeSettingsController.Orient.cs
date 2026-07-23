@@ -14,7 +14,7 @@ namespace GlassGlobe
             GUILayout.Space(14f);
             GUILayout.Label("Align with the sky", headingStyle);
             GUILayout.Label(
-                "You can set north directly, or use the real Sun or Moon for fine alignment.",
+                "Set north directly, or use the real Sun or Moon to align the ARCore orientation lock.",
                 bodyStyle);
             GUILayout.Space(10f);
 
@@ -27,7 +27,7 @@ namespace GlassGlobe
 
             GUILayout.Label("Quick north alignment", headingStyle);
             GUILayout.Label(
-                "Hold the phone upright and aim the center dot toward true north, then tap the button. GlassGlobe will ignore the magnetic compass until you reset it or leave the app. Gyro north can slowly drift, so tap again when needed.",
+                "Hold the phone upright and aim the center dot toward true north, then tap the button. ARCore keeps that heading locked using camera and motion tracking. Set north again whenever you want to reset it.",
                 bodyStyle);
             GUILayout.Space(6f);
             DrawButton("My Phone Is Facing North", AlignPhoneToNorth, 50f);
@@ -40,7 +40,7 @@ namespace GlassGlobe
             GUILayout.Space(16f);
             GUILayout.Label("Fine alignment", headingStyle);
             GUILayout.Label(
-                "Point the center dot at the real Sun or Moon and capture. The camera turns on so you can see the sky. Never look directly at the Sun - watch the screen only.",
+                "Point the center dot at the real Sun or Moon and capture. This uses your GPS position and the body's current sky position to correct the same ARCore heading lock. Never look directly at the Sun - watch the screen only.",
                 bodyStyle);
             GUILayout.Space(8f);
 
@@ -82,9 +82,11 @@ namespace GlassGlobe
             GUILayout.Label(
                 string.Format(
                     "{0}\nCurrent manual correction: {1:+0.0;-0.0;0.0} deg\nSun: azimuth {2:0} deg, altitude {3:0} deg\nMoon: azimuth {4:0} deg, altitude {5:0} deg",
-                    poseSensors.GyroNorthLockActive
-                        ? "Gyro north lock: ON (compass ignored)"
-                        : "Gyro north lock: OFF (automatic compass)",
+                    poseSensors.ArNorthLockActive
+                        ? "ARCore north lock: ON"
+                        : poseSensors.GyroNorthLockActive
+                            ? "Gyro fallback north lock: ON"
+                            : "North lock: OFF",
                     poseSensors.ActiveHeadingCorrectionDegrees,
                     sunAzimuth,
                     sunAltitude,
@@ -95,6 +97,12 @@ namespace GlassGlobe
 
         private void AlignPhoneToNorth()
         {
+            if (!GlassGlobeSettingsState.OrientCategoryEnabled)
+            {
+                orientStatusMessage = "Enable Orient on the Settings page before setting north.";
+                return;
+            }
+
             if (poseSensors == null)
             {
                 orientStatusMessage = "Sensors unavailable.";
@@ -104,21 +112,26 @@ namespace GlassGlobe
             float correctionDegrees;
             if (!poseSensors.TryAlignCurrentHeadingToNorth(out correctionDegrees))
             {
-                orientStatusMessage = poseSensors.GameRotationAvailable
-                    ? "Wait for the gyro-only orientation sensor, hold the phone upright toward north, then try again."
-                    : "This phone's gyro-only orientation sensor is unavailable, so metal-resistant north lock cannot start.";
+                orientStatusMessage =
+                    "North lock is not ready yet: " + poseSensors.OrientationStatus + ".";
                 return;
             }
 
             orientStatusMessage =
-                "North locked with the magnetic compass ignored. Applied " +
+                (poseSensors.ArNorthLockActive ? "ARCore north locked. Applied " : "Gyro fallback north locked. Applied ") +
                 correctionDegrees.ToString("+0.0;-0.0;0.0") +
-                " deg; set it again after leaving or reopening GlassGlobe.";
+                " deg; set it again whenever you want to reset the heading.";
         }
 
         private void StartAlignment(AlignBody body)
         {
-            if (GlassGlobeSettingsState.ViewpointOverrideEnabled)
+            if (!GlassGlobeSettingsState.OrientCategoryEnabled)
+            {
+                orientStatusMessage = "Enable Orient on the Settings page before aligning.";
+                return;
+            }
+
+            if (GlassGlobeSettingsState.EffectiveViewpointOverrideEnabled)
             {
                 orientStatusMessage =
                     "Sun and Moon alignment needs the sky at your real GPS location. Return to real GPS location first.";
@@ -311,8 +324,9 @@ namespace GlassGlobe
             }
 
             orientStatusMessage = string.Format(
-                "Aligned to the {0}. Gyro north locked with the compass ignored; corrected by {1:+0.0;-0.0;0.0} deg.",
+                "Aligned to the {0}. {1} corrected the heading by {2:+0.0;-0.0;0.0} deg.",
                 BodyName(alignTarget),
+                poseSensors.ArNorthLockActive ? "ARCore" : "Gyro fallback",
                 azimuthCorrection);
             currentPage = SettingsPage.Orient;
         }
@@ -324,10 +338,16 @@ namespace GlassGlobe
 
         private void ResetHeadingOffset()
         {
+            if (!GlassGlobeSettingsState.OrientCategoryEnabled)
+            {
+                orientStatusMessage = "Enable Orient on the Settings page before resetting alignment.";
+                return;
+            }
+
             if (poseSensors != null)
             {
                 poseSensors.ResetHeadingCorrection();
-                orientStatusMessage = "Manual heading correction reset; automatic compass alignment restored.";
+                orientStatusMessage = "North lock reset. Set north or align to the Sun or Moon again when ready.";
             }
         }
 

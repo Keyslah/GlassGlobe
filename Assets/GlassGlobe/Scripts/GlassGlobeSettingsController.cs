@@ -32,17 +32,10 @@ namespace GlassGlobe
         public SatelliteOverlay satelliteOverlay;
         public EarthquakeOverlay earthquakeOverlay;
 
-        [Min(0.5f)]
-        public float settingsButtonVisibleSeconds = 3f;
-
-        [Min(0.05f)]
-        public float settingsButtonFadeSeconds = 0.35f;
-
         private enum SettingsPage
         {
             Closed,
             Settings,
-            Camera,
             Viewpoint,
             Background,
             Display,
@@ -182,6 +175,13 @@ namespace GlassGlobe
         private Vector2 touchStartScreenPoint;
         private bool touchDragged;
         private bool scrollTouchActive;
+        private bool pinchGestureActive;
+        private bool pinchGestureConsumed;
+        private float previousPinchDistance;
+        private float zoomIndicatorVisibleUntil;
+        private float zoomIndicatorCurrentFov = PhonePoseSimulator.DefaultViewportFovDegrees;
+        private float zoomIndicatorDefaultFov = PhonePoseSimulator.DefaultViewportFovDegrees;
+        private GUIStyle zoomIndicatorStyle;
 
         public static GlassGlobeSettingsController EnsureInstance(GlassGlobeHUD owner)
         {
@@ -265,7 +265,16 @@ namespace GlassGlobe
 
             if (currentPage == SettingsPage.Closed)
             {
-                DrawSettingsEntryButton();
+                DrawZoomIndicator();
+                if (!Application.isMobilePlatform &&
+                    Event.current.type == EventType.MouseUp &&
+                    Event.current.button == 0 &&
+                    (hud == null || !hud.IsInteractiveScreenPoint(Event.current.mousePosition)))
+                {
+                    OpenSettings();
+                    Event.current.Use();
+                }
+
                 return;
             }
 
@@ -320,6 +329,44 @@ namespace GlassGlobe
             ApplyCameraSetting();
         }
 
+        private void SetSettingsCategoryEnabled(SettingsPage page, bool value)
+        {
+            switch (page)
+            {
+                case SettingsPage.Viewpoint:
+                    GlassGlobeSettingsState.SetViewpointCategoryEnabled(value);
+                    break;
+                case SettingsPage.Background:
+                    GlassGlobeSettingsState.SetBackgroundCategoryEnabled(value);
+                    break;
+                case SettingsPage.Display:
+                    GlassGlobeSettingsState.SetDisplayCategoryEnabled(value);
+                    break;
+                case SettingsPage.EarthStyles:
+                    GlassGlobeSettingsState.SetEarthStylesCategoryEnabled(value);
+                    break;
+                case SettingsPage.Weather:
+                    GlassGlobeSettingsState.SetWeatherCategoryEnabled(value);
+                    break;
+                case SettingsPage.LiveData:
+                    GlassGlobeSettingsState.SetLiveDataCategoryEnabled(value);
+                    break;
+                case SettingsPage.Orient:
+                    GlassGlobeSettingsState.SetOrientCategoryEnabled(value);
+                    orientStatusMessage = value
+                        ? "Orient settings restored."
+                        : "Orient settings disabled; your alignment is saved.";
+                    break;
+                case SettingsPage.Privacy:
+                    GlassGlobeSettingsState.SetPrivacyCategoryEnabled(value);
+                    break;
+                default:
+                    return;
+            }
+
+            ApplySavedSettings();
+        }
+
         private void SetCountryLabelsVisible(bool value)
         {
             GlassGlobeSettingsState.SetCountryLabelsVisible(value);
@@ -348,20 +395,6 @@ namespace GlassGlobe
             ApplySunMoonSettings();
         }
 
-        private void SetNightLightsEnabled(bool value)
-        {
-            GlassGlobeSettingsState.SetNightLightsEnabled(value);
-            nightLightsSettingApplied = false;
-            ApplyEarthStyleSettings();
-        }
-
-        private void SetRimGlowEnabled(bool value)
-        {
-            GlassGlobeSettingsState.SetRimGlowEnabled(value);
-            rimGlowSettingApplied = false;
-            ApplyEarthStyleSettings();
-        }
-
         private void SetWaterArtEnabled(bool value)
         {
             GlassGlobeSettingsState.SetWaterArtEnabled(value);
@@ -371,18 +404,6 @@ namespace GlassGlobe
         private void SetLandArtEnabled(bool value)
         {
             GlassGlobeSettingsState.SetLandArtEnabled(value);
-            MarkEarthArtDirty();
-        }
-
-        private void SetOceanArtEnabled(bool value)
-        {
-            GlassGlobeSettingsState.SetOceanArtEnabled(value);
-            MarkEarthArtDirty();
-        }
-
-        private void SetArtCloudsEnabled(bool value)
-        {
-            GlassGlobeSettingsState.SetArtCloudsEnabled(value);
             MarkEarthArtDirty();
         }
 
@@ -534,7 +555,8 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desired = GlassGlobeSettingsState.CountryLabelsVisible;
+            bool desired = GlassGlobeSettingsState.ViewpointCategoryEnabled &&
+                GlassGlobeSettingsState.CountryLabelsVisible;
             if (labelsSettingApplied && appliedLabelsSetting == desired)
             {
                 return;
@@ -555,6 +577,15 @@ namespace GlassGlobe
 
             if (borderRenderer != null)
             {
+                bool bordersVisible = GlassGlobeSettingsState.DisplayCategoryEnabled;
+                if (borderRenderer.showCountryOutlines != bordersVisible ||
+                    borderRenderer.showContinentOutlines != bordersVisible)
+                {
+                    borderRenderer.showCountryOutlines = bordersVisible;
+                    borderRenderer.showContinentOutlines = bordersVisible;
+                    borderRenderer.RebuildBorders();
+                }
+
                 borderRenderer.SetCountryOutlineColor(GlassGlobeSettingsState.CountryOutlineColor);
                 borderRenderer.SetCountryOutlineThickness(GlassGlobeSettingsState.CountryOutlineThickness);
             }
@@ -562,7 +593,9 @@ namespace GlassGlobe
             if (gridRenderer != null)
             {
                 gridRenderer.SetGridColor(GlassGlobeSettingsState.GridColor);
-                gridRenderer.SetGridVisible(GlassGlobeSettingsState.GridVisible);
+                gridRenderer.SetGridVisible(
+                    GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                    GlassGlobeSettingsState.GridVisible);
                 gridRenderer.SetGridThickness(GlassGlobeSettingsState.GridThickness);
             }
 
@@ -576,7 +609,8 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desiredSun = GlassGlobeSettingsState.SunEnabled;
+            bool desiredSun = GlassGlobeSettingsState.BackgroundCategoryEnabled &&
+                GlassGlobeSettingsState.SunEnabled;
             if (!sunSettingApplied || appliedSunSetting != desiredSun)
             {
                 sunMoon.SetSunVisible(desiredSun);
@@ -584,7 +618,8 @@ namespace GlassGlobe
                 sunSettingApplied = true;
             }
 
-            bool desiredMoon = GlassGlobeSettingsState.MoonEnabled;
+            bool desiredMoon = GlassGlobeSettingsState.BackgroundCategoryEnabled &&
+                GlassGlobeSettingsState.MoonEnabled;
             if (!moonSettingApplied || appliedMoonSetting != desiredMoon)
             {
                 sunMoon.SetMoonVisible(desiredMoon);
@@ -600,7 +635,8 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desiredClouds = GlassGlobeSettingsState.WeatherCloudsEnabled;
+            bool desiredClouds = GlassGlobeSettingsState.WeatherCategoryEnabled &&
+                GlassGlobeSettingsState.WeatherCloudsEnabled;
             if (!weatherCloudsSettingApplied || appliedWeatherCloudsSetting != desiredClouds)
             {
                 weather.SetCloudsVisible(desiredClouds);
@@ -608,7 +644,8 @@ namespace GlassGlobe
                 weatherCloudsSettingApplied = true;
             }
 
-            bool desiredRadar = GlassGlobeSettingsState.WeatherRadarEnabled;
+            bool desiredRadar = GlassGlobeSettingsState.WeatherCategoryEnabled &&
+                GlassGlobeSettingsState.WeatherRadarEnabled;
             if (!weatherRadarSettingApplied || appliedWeatherRadarSetting != desiredRadar)
             {
                 weather.SetRadarVisible(desiredRadar);
@@ -621,7 +658,8 @@ namespace GlassGlobe
         {
             if (satelliteOverlay != null)
             {
-                bool desiredSatellites = GlassGlobeSettingsState.SatellitesEnabled;
+                bool desiredSatellites = GlassGlobeSettingsState.LiveDataCategoryEnabled &&
+                    GlassGlobeSettingsState.SatellitesEnabled;
                 if (!satellitesSettingApplied || appliedSatellitesSetting != desiredSatellites)
                 {
                     satelliteOverlay.SetSatellitesVisible(desiredSatellites);
@@ -632,7 +670,8 @@ namespace GlassGlobe
 
             if (earthquakeOverlay != null)
             {
-                bool desiredEarthquakes = GlassGlobeSettingsState.EarthquakesEnabled;
+                bool desiredEarthquakes = GlassGlobeSettingsState.LiveDataCategoryEnabled &&
+                    GlassGlobeSettingsState.EarthquakesEnabled;
                 if (!earthquakesSettingApplied || appliedEarthquakesSetting != desiredEarthquakes)
                 {
                     earthquakeOverlay.SetEarthquakesVisible(desiredEarthquakes);
@@ -649,7 +688,8 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desired = GlassGlobeSettingsState.MilkyWayEnabled;
+            bool desired = GlassGlobeSettingsState.BackgroundCategoryEnabled &&
+                GlassGlobeSettingsState.MilkyWayEnabled;
             if (milkyWaySettingApplied && appliedMilkyWaySetting == desired)
             {
                 return;
@@ -667,10 +707,11 @@ namespace GlassGlobe
                 return;
             }
 
-            earthArt.SetWaterVisible(GlassGlobeSettingsState.WaterArtEnabled);
-            earthArt.SetLandVisible(GlassGlobeSettingsState.LandArtEnabled);
-            earthArt.SetOceanVisible(GlassGlobeSettingsState.OceanArtEnabled);
-            earthArt.SetArtCloudsVisible(GlassGlobeSettingsState.ArtCloudsEnabled);
+            bool categoryEnabled = GlassGlobeSettingsState.EarthStylesCategoryEnabled;
+            earthArt.SetWaterVisible(categoryEnabled && GlassGlobeSettingsState.WaterArtEnabled);
+            earthArt.SetLandVisible(categoryEnabled && GlassGlobeSettingsState.LandArtEnabled);
+            earthArt.SetOceanVisible(categoryEnabled && GlassGlobeSettingsState.OceanArtEnabled);
+            earthArt.SetArtCloudsVisible(categoryEnabled && GlassGlobeSettingsState.ArtCloudsEnabled);
             earthArt.ApplyOpacities();
             earthArtSettingsDirty = false;
         }
@@ -682,8 +723,10 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desiredNight = GlassGlobeSettingsState.NightLightsEnabled;
-            bool desiredRim = GlassGlobeSettingsState.RimGlowEnabled;
+            bool desiredNight = GlassGlobeSettingsState.EarthStylesCategoryEnabled &&
+                GlassGlobeSettingsState.NightLightsEnabled;
+            bool desiredRim = GlassGlobeSettingsState.EarthStylesCategoryEnabled &&
+                GlassGlobeSettingsState.RimGlowEnabled;
             if (nightLightsSettingApplied && appliedNightLightsSetting == desiredNight &&
                 rimGlowSettingApplied && appliedRimGlowSetting == desiredRim)
             {
@@ -712,7 +755,7 @@ namespace GlassGlobe
             bool sensorModeActive = poseSensors != null && poseSensors.SensorModeActive;
             if (phonePose != null && !sensorModeActive)
             {
-                if (GlassGlobeSettingsState.ViewpointOverrideEnabled)
+                if (GlassGlobeSettingsState.EffectiveViewpointOverrideEnabled)
                 {
                     phonePose.userCoordinate = GlassGlobeSettingsState.ViewpointCoordinate;
                 }

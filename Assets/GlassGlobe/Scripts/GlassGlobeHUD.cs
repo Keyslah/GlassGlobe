@@ -20,16 +20,10 @@ namespace GlassGlobe
         private GUIStyle countryBannerStyle;
         private Rect tiltTouchRect;
         private Rect headingTouchRect;
-        private Rect fovTouchRect;
         private Rect straightDownTouchRect;
         private Rect fortyFiveTouchRect;
         private Rect nearHorizonTouchRect;
         private Rect alignTouchRect;
-        private Rect nudgeMinusFiveTouchRect;
-        private Rect nudgeMinusOneTouchRect;
-        private Rect nudgePlusOneTouchRect;
-        private Rect nudgePlusFiveTouchRect;
-        private Rect arToggleTouchRect;
         private string alignmentStatusText = string.Empty;
         private float alignmentStatusUntil;
         private Rect activePanelRect;
@@ -44,19 +38,13 @@ namespace GlassGlobe
         {
             None,
             Tilt,
-            Heading,
-            Fov
+            Heading
         }
 
         private enum SensorTouchAction
         {
             None,
-            SetNorth,
-            MinusFive,
-            MinusOne,
-            PlusOne,
-            PlusFive,
-            ToggleCamera
+            SetNorth
         }
 
         private void Awake()
@@ -73,7 +61,7 @@ namespace GlassGlobe
         private void Update()
         {
             ResolveReferences();
-            if (!showHud || !GlassGlobeSettingsState.MainHudVisible)
+            if (!showHud)
             {
                 activeTouchSlider = TouchSlider.None;
                 return;
@@ -100,25 +88,24 @@ namespace GlassGlobe
             Rect responsivePanel = panelRect;
             responsivePanel.width = Mathf.Min(panelRect.width, Screen.width / uiScale - panelRect.x * 2f);
             float bannerHeight = Application.isMobilePlatform ? 72f : 56f;
-            if (GlassGlobeSettingsState.CountryBannerVisible && GlassGlobeSettingsState.CountryBannerAtTop)
+            bool displayEnabled = GlassGlobeSettingsState.DisplayCategoryEnabled;
+            if (displayEnabled)
             {
                 responsivePanel.y += bannerHeight + 8f;
             }
 
-            if (GlassGlobeSettingsState.CountryBannerVisible)
+            if (displayEnabled)
             {
                 Rect bannerRect = new Rect(
                     responsivePanel.x,
-                    GlassGlobeSettingsState.CountryBannerAtTop
-                        ? panelRect.y
-                        : Screen.height / uiScale - panelRect.y - bannerHeight,
+                    panelRect.y,
                     responsivePanel.width,
                     bannerHeight);
                 GUI.Box(bannerRect, GetViewedCountryName(), countryBannerStyle);
             }
 
             activePanelRect = responsivePanel;
-            if (GlassGlobeSettingsState.MainHudVisible)
+            if (displayEnabled && GlassGlobeSettingsState.MainHudVisible)
             {
                 GUILayout.BeginArea(responsivePanel, GUI.skin.box);
 
@@ -133,6 +120,8 @@ namespace GlassGlobe
 
                 GUILayout.EndArea();
             }
+
+            DrawViewportSetNorthButton(uiScale);
             GUI.matrix = previousMatrix;
         }
 
@@ -167,7 +156,6 @@ namespace GlassGlobe
 
             DrawSlider("Tilt", 0f, PhonePoseSimulator.MaxTiltDegrees, GetTilt(), SetTilt);
             DrawSlider("Heading", 0f, 360f, GetHeading(), SetHeading);
-            DrawSlider("FOV", 20f, 75f, GetFov(), SetFov);
 
             GUILayout.Space(8f);
             GUILayout.BeginHorizontal();
@@ -206,58 +194,6 @@ namespace GlassGlobe
             GUILayout.Label("GlassGlobe Live", titleStyle);
             GUILayout.Space(4f);
             GUILayout.Label(BuildSensorReadout(), readoutStyle);
-            GUILayout.Space(8f);
-
-            DrawSlider("FOV", 20f, 75f, GetFov(), SetFov);
-
-            GUILayout.Space(8f);
-            float sensorButtonHeight = Application.isMobilePlatform ? 48f : 30f;
-            GUILayout.BeginHorizontal();
-            bool alignClicked = GUILayout.Button("Set North", GUILayout.Height(sensorButtonHeight));
-            StoreButtonTouchRect(ref alignTouchRect);
-            if (alignClicked && !Application.isMobilePlatform)
-            {
-                AlignPhoneToNorth();
-            }
-
-            bool minusFiveClicked = GUILayout.Button("-5", GUILayout.Height(sensorButtonHeight));
-            StoreButtonTouchRect(ref nudgeMinusFiveTouchRect);
-            if (minusFiveClicked && !Application.isMobilePlatform)
-            {
-                poseSensors.NudgeHeading(-5f);
-            }
-
-            bool minusOneClicked = GUILayout.Button("-1", GUILayout.Height(sensorButtonHeight));
-            StoreButtonTouchRect(ref nudgeMinusOneTouchRect);
-            if (minusOneClicked && !Application.isMobilePlatform)
-            {
-                poseSensors.NudgeHeading(-1f);
-            }
-
-            bool plusOneClicked = GUILayout.Button("+1", GUILayout.Height(sensorButtonHeight));
-            StoreButtonTouchRect(ref nudgePlusOneTouchRect);
-            if (plusOneClicked && !Application.isMobilePlatform)
-            {
-                poseSensors.NudgeHeading(1f);
-            }
-
-            bool plusFiveClicked = GUILayout.Button("+5", GUILayout.Height(sensorButtonHeight));
-            StoreButtonTouchRect(ref nudgePlusFiveTouchRect);
-            if (plusFiveClicked && !Application.isMobilePlatform)
-            {
-                poseSensors.NudgeHeading(5f);
-            }
-
-            bool arClicked = GUILayout.Button(
-                GlassGlobeSettingsState.CameraFeedEnabled ? "AR On" : "AR Off",
-                GUILayout.Height(sensorButtonHeight));
-            StoreButtonTouchRect(ref arToggleTouchRect);
-            if (arClicked && !Application.isMobilePlatform)
-            {
-                ToggleCameraFeed();
-            }
-
-            GUILayout.EndHorizontal();
 
             if (Time.unscaledTime < alignmentStatusUntil && !string.IsNullOrEmpty(alignmentStatusText))
             {
@@ -266,23 +202,53 @@ namespace GlassGlobe
             }
         }
 
+        private void DrawViewportSetNorthButton(float uiScale)
+        {
+            alignTouchRect = Rect.zero;
+            if (!SensorModeActive() || !GlassGlobeSettingsState.EffectiveShowSetNorthButton)
+            {
+                return;
+            }
+
+            Rect safeArea = Screen.safeArea;
+            float logicalWidth = Screen.width / uiScale;
+            float safeBottom = (Screen.height - safeArea.yMin) / uiScale;
+            float width = Mathf.Min(240f, logicalWidth - 40f);
+            float height = Application.isMobilePlatform ? 64f : 46f;
+            Rect buttonRect = new Rect(
+                (logicalWidth - width) * 0.5f,
+                safeBottom - height - 24f,
+                width,
+                height);
+            bool clicked = GUI.Button(buttonRect, "Set North");
+            alignTouchRect = new Rect(
+                buttonRect.x * uiScale,
+                buttonRect.y * uiScale,
+                buttonRect.width * uiScale,
+                buttonRect.height * uiScale);
+            if (clicked && !Application.isMobilePlatform)
+            {
+                AlignPhoneToNorth();
+            }
+        }
+
         private void AlignPhoneToNorth()
         {
             float correctionDegrees;
             if (poseSensors == null || !poseSensors.TryAlignCurrentHeadingToNorth(out correctionDegrees))
             {
-                alignmentStatusText = poseSensors != null && !poseSensors.GameRotationAvailable
-                    ? "North not set: gyro-only sensor unavailable"
-                    : "North not set: hold phone upright and wait for gyro";
+                alignmentStatusText = poseSensors == null
+                    ? "North not set: sensors unavailable"
+                    : "North not set: " + poseSensors.OrientationStatus;
                 alignmentStatusUntil = Time.unscaledTime + 3f;
-                Debug.LogWarning("GlassGlobeHUD: Set North needs the live gyro-only orientation and an upright phone.");
+                Debug.LogWarning("GlassGlobeHUD: Set North is waiting for orientation tracking.");
                 return;
             }
 
-            alignmentStatusText = "North locked; compass ignored: " +
+            alignmentStatusText = (poseSensors.ArNorthLockActive ? "ARCore north locked: " : "Gyro north locked: ") +
                 correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg";
             alignmentStatusUntil = Time.unscaledTime + 3f;
-            Debug.Log("GlassGlobeHUD: gyro north locked; compass ignored; correction=" +
+            Debug.Log("GlassGlobeHUD: north locked; correction=" +
                 correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg");
         }
 
@@ -333,8 +299,14 @@ namespace GlassGlobe
 
         private void HandleMobileTouch()
         {
-            if (!Application.isMobilePlatform || Input.touchCount == 0)
+            if (!Application.isMobilePlatform || Input.touchCount == 0 || Input.touchCount > 1)
             {
+                if (Input.touchCount > 1)
+                {
+                    touchDragged = true;
+                    activeTouchSlider = TouchSlider.None;
+                    activeSensorTouchAction = SensorTouchAction.None;
+                }
                 return;
             }
 
@@ -384,10 +356,6 @@ namespace GlassGlobe
                 {
                     activeTouchSlider = TouchSlider.Heading;
                 }
-                else if (fovTouchRect.Contains(screenPoint))
-                {
-                    activeTouchSlider = TouchSlider.Fov;
-                }
             }
 
             if (touch.fingerId != trackedTouchFingerId)
@@ -427,11 +395,6 @@ namespace GlassGlobe
         private SensorTouchAction FindSensorTouchAction(Vector2 screenPoint)
         {
             if (alignTouchRect.Contains(screenPoint)) return SensorTouchAction.SetNorth;
-            if (nudgeMinusFiveTouchRect.Contains(screenPoint)) return SensorTouchAction.MinusFive;
-            if (nudgeMinusOneTouchRect.Contains(screenPoint)) return SensorTouchAction.MinusOne;
-            if (nudgePlusOneTouchRect.Contains(screenPoint)) return SensorTouchAction.PlusOne;
-            if (nudgePlusFiveTouchRect.Contains(screenPoint)) return SensorTouchAction.PlusFive;
-            if (arToggleTouchRect.Contains(screenPoint)) return SensorTouchAction.ToggleCamera;
             return SensorTouchAction.None;
         }
 
@@ -440,11 +403,6 @@ namespace GlassGlobe
             switch (action)
             {
                 case SensorTouchAction.SetNorth: return alignTouchRect;
-                case SensorTouchAction.MinusFive: return nudgeMinusFiveTouchRect;
-                case SensorTouchAction.MinusOne: return nudgeMinusOneTouchRect;
-                case SensorTouchAction.PlusOne: return nudgePlusOneTouchRect;
-                case SensorTouchAction.PlusFive: return nudgePlusFiveTouchRect;
-                case SensorTouchAction.ToggleCamera: return arToggleTouchRect;
                 default: return Rect.zero;
             }
         }
@@ -456,22 +414,13 @@ namespace GlassGlobe
                 case SensorTouchAction.SetNorth:
                     AlignPhoneToNorth();
                     break;
-                case SensorTouchAction.MinusFive:
-                    poseSensors.NudgeHeading(-5f);
-                    break;
-                case SensorTouchAction.MinusOne:
-                    poseSensors.NudgeHeading(-1f);
-                    break;
-                case SensorTouchAction.PlusOne:
-                    poseSensors.NudgeHeading(1f);
-                    break;
-                case SensorTouchAction.PlusFive:
-                    poseSensors.NudgeHeading(5f);
-                    break;
-                case SensorTouchAction.ToggleCamera:
-                    ToggleCameraFeed();
-                    break;
             }
+        }
+
+        public bool IsInteractiveScreenPoint(Vector2 screenPoint)
+        {
+            return GlassGlobeSettingsState.EffectiveShowSetNorthButton &&
+                alignTouchRect.Contains(screenPoint);
         }
 
         private void ResetTrackedTouch()
@@ -508,11 +457,6 @@ namespace GlassGlobe
                     min = 0f;
                     max = 360f;
                     break;
-                case TouchSlider.Fov:
-                    rect = fovTouchRect;
-                    min = 20f;
-                    max = 75f;
-                    break;
                 default:
                     return;
             }
@@ -527,10 +471,6 @@ namespace GlassGlobe
             {
                 SetHeading(value);
             }
-            else
-            {
-                SetFov(value);
-            }
         }
 
         private void StoreSliderTouchRect(string label, Rect localRect)
@@ -543,10 +483,6 @@ namespace GlassGlobe
             else if (label == "Heading")
             {
                 headingTouchRect = screenRect;
-            }
-            else if (label == "FOV")
-            {
-                fovTouchRect = screenRect;
             }
         }
 
@@ -574,16 +510,6 @@ namespace GlassGlobe
             return phonePose != null ? phonePose.headingDegrees : 0f;
         }
 
-        private float GetFov()
-        {
-            if (SensorModeActive())
-            {
-                return poseSensors.cameraFovDegrees;
-            }
-
-            return phonePose != null ? phonePose.cameraFovDegrees : 0f;
-        }
-
         private void SetTilt(float value)
         {
             if (phonePose == null)
@@ -604,33 +530,6 @@ namespace GlassGlobe
 
             phonePose.headingDegrees = value;
             RefreshPreview();
-        }
-
-        private void SetFov(float value)
-        {
-            if (SensorModeActive())
-            {
-                poseSensors.cameraFovDegrees = value;
-                return;
-            }
-
-            if (phonePose == null)
-            {
-                return;
-            }
-
-            phonePose.cameraFovDegrees = value;
-            RefreshPreview();
-        }
-
-        private void ToggleCameraFeed()
-        {
-            bool desired = !GlassGlobeSettingsState.CameraFeedEnabled;
-            GlassGlobeSettingsState.SetCameraFeedEnabled(desired);
-            if (cameraFeed != null)
-            {
-                cameraFeed.SetFeedWanted(desired);
-            }
         }
 
         private void RefreshPreview()
@@ -667,22 +566,22 @@ namespace GlassGlobe
             }
 
             StringBuilder readout = new StringBuilder();
-            if (GlassGlobeSettingsState.ShowViewedFromName)
+            if (GlassGlobeSettingsState.EffectiveShowViewedFromName)
             {
                 readout.Append("Viewed From: ").AppendLine(GlassGlobeSettingsState.ViewedFromLabel);
             }
 
-            if (!GlassGlobeSettingsState.HideUserCoordinates)
+            if (!GlassGlobeSettingsState.EffectiveHideUserCoordinates)
             {
                 readout.Append("User Lat/Lon: ").AppendLine(phonePose.userCoordinate.ToString());
             }
 
-            if (!GlassGlobeSettingsState.HideFarSideCoordinates)
+            if (!GlassGlobeSettingsState.EffectiveHideFarSideCoordinates)
             {
                 readout.Append("Far-Side Lat/Lon: ").AppendLine(targetText);
             }
 
-            if (!GlassGlobeSettingsState.HideViewedRegion)
+            if (!GlassGlobeSettingsState.EffectiveHideViewedRegion)
             {
                 readout.Append("Country/Region: ").AppendLine(regionText);
             }
@@ -722,15 +621,15 @@ namespace GlassGlobe
             StringBuilder readout = new StringBuilder();
             readout.Append(poseSensors.LocationStatus).Append("   Camera: ").AppendLine(feedText);
 
-            if (GlassGlobeSettingsState.ShowViewedFromName)
+            if (GlassGlobeSettingsState.EffectiveShowViewedFromName)
             {
                 readout.Append("Viewed From: ").AppendLine(GlassGlobeSettingsState.ViewedFromLabel);
             }
 
-            if (!GlassGlobeSettingsState.HideUserCoordinates)
+            if (!GlassGlobeSettingsState.EffectiveHideUserCoordinates)
             {
                 readout.Append("User Lat/Lon: ").Append(poseSensors.CurrentCoordinate);
-                if (!GlassGlobeSettingsState.HideLocationAccuracy && poseSensors.HasLocationFix)
+                if (!GlassGlobeSettingsState.EffectiveHideLocationAccuracy && poseSensors.HasLocationFix)
                 {
                     readout.AppendFormat("  (+/-{0:0}m)", poseSensors.LocationAccuracyMeters);
                 }
@@ -738,12 +637,12 @@ namespace GlassGlobe
                 readout.AppendLine();
             }
 
-            if (!GlassGlobeSettingsState.HideFarSideCoordinates)
+            if (!GlassGlobeSettingsState.EffectiveHideFarSideCoordinates)
             {
                 readout.Append("Far-Side Lat/Lon: ").AppendLine(targetText);
             }
 
-            if (!GlassGlobeSettingsState.HideViewedRegion)
+            if (!GlassGlobeSettingsState.EffectiveHideViewedRegion)
             {
                 readout.Append("Country/Region: ").AppendLine(regionText);
             }

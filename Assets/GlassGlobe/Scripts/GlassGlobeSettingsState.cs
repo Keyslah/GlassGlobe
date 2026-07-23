@@ -16,12 +16,12 @@ namespace GlassGlobe
         private const string CameraFeedKey = Prefix + "CameraFeed";
         private const string MainHudKey = Prefix + "MainHud";
         private const string CountryBannerKey = Prefix + "CountryBanner";
-        private const string CountryBannerTopKey = Prefix + "CountryBannerTop";
         private const string CountryOutlineColorKey = Prefix + "CountryOutlineColor";
         private const string GridColorKey = Prefix + "GridColor";
         private const string GridVisibleKey = Prefix + "GridVisible";
         private const string CountryOutlineThicknessKey = Prefix + "CountryOutlineThickness";
         private const string GridThicknessKey = Prefix + "GridThickness";
+        private const string ShowSetNorthButtonKey = Prefix + "ShowSetNorthButton";
         private const string HideUserCoordinatesKey = Prefix + "HideUserCoordinates";
         private const string HideFarSideCoordinatesKey = Prefix + "HideFarSideCoordinates";
         private const string HideLocationAccuracyKey = Prefix + "HideLocationAccuracy";
@@ -52,18 +52,26 @@ namespace GlassGlobe
         private const string HeadingFineOffsetKey = Prefix + "HeadingFineOffsetV4";
         private const string LegacyHeadingOffsetKey = Prefix + "HeadingOffsetV3";
         private const string LegacyManualHeadingKey = Prefix + "ManualHeadingCalibrationV3";
+        private const string ViewpointCategoryKey = Prefix + "Category.Viewpoint";
+        private const string BackgroundCategoryKey = Prefix + "Category.Background";
+        private const string DisplayCategoryKey = Prefix + "Category.Display";
+        private const string EarthStylesCategoryKey = Prefix + "Category.EarthStyles";
+        private const string WeatherCategoryKey = Prefix + "Category.Weather";
+        private const string LiveDataCategoryKey = Prefix + "Category.LiveData";
+        private const string OrientCategoryKey = Prefix + "Category.Orient";
+        private const string PrivacyCategoryKey = Prefix + "Category.Privacy";
 
         private static bool loaded;
 
         public static bool CameraFeedEnabled { get; private set; }
         public static bool MainHudVisible { get; private set; }
         public static bool CountryBannerVisible { get; private set; }
-        public static bool CountryBannerAtTop { get; private set; }
         public static Color CountryOutlineColor { get; private set; }
         public static Color GridColor { get; private set; }
         public static bool GridVisible { get; private set; }
         public static float CountryOutlineThickness { get; private set; }
         public static float GridThickness { get; private set; }
+        public static bool ShowSetNorthButton { get; private set; }
         public static bool HideUserCoordinates { get; private set; }
         public static bool HideFarSideCoordinates { get; private set; }
         public static bool HideLocationAccuracy { get; private set; }
@@ -92,6 +100,77 @@ namespace GlassGlobe
         public static bool SatellitesEnabled { get; private set; }
         public static bool EarthquakesEnabled { get; private set; }
         public static float HeadingFineOffsetDegrees { get; private set; }
+        public static bool ViewpointCategoryEnabled { get; private set; }
+        public static bool BackgroundCategoryEnabled { get; private set; }
+        public static bool DisplayCategoryEnabled { get; private set; }
+        public static bool EarthStylesCategoryEnabled { get; private set; }
+        public static bool WeatherCategoryEnabled { get; private set; }
+        public static bool LiveDataCategoryEnabled { get; private set; }
+        public static bool OrientCategoryEnabled { get; private set; }
+        public static bool PrivacyCategoryEnabled { get; private set; }
+
+        public static bool EffectiveViewpointOverrideEnabled
+        {
+            get
+            {
+                Load();
+                return ViewpointCategoryEnabled && ViewpointOverrideEnabled;
+            }
+        }
+
+        public static bool EffectiveShowSetNorthButton
+        {
+            get
+            {
+                Load();
+                return DisplayCategoryEnabled && OrientCategoryEnabled && ShowSetNorthButton;
+            }
+        }
+
+        public static bool EffectiveHideUserCoordinates
+        {
+            get
+            {
+                Load();
+                return PrivacyCategoryEnabled && HideUserCoordinates;
+            }
+        }
+
+        public static bool EffectiveHideFarSideCoordinates
+        {
+            get
+            {
+                Load();
+                return PrivacyCategoryEnabled && HideFarSideCoordinates;
+            }
+        }
+
+        public static bool EffectiveHideLocationAccuracy
+        {
+            get
+            {
+                Load();
+                return PrivacyCategoryEnabled && HideLocationAccuracy;
+            }
+        }
+
+        public static bool EffectiveHideViewedRegion
+        {
+            get
+            {
+                Load();
+                return PrivacyCategoryEnabled && HideViewedRegion;
+            }
+        }
+
+        public static bool EffectiveShowViewedFromName
+        {
+            get
+            {
+                Load();
+                return !PrivacyCategoryEnabled || ShowViewedFromName;
+            }
+        }
 
         public static GeoCoordinate ViewpointCoordinate
         {
@@ -103,7 +182,7 @@ namespace GlassGlobe
             get
             {
                 Load();
-                if (!ViewpointOverrideEnabled)
+                if (!EffectiveViewpointOverrideEnabled)
                 {
                     return "Current location";
                 }
@@ -134,15 +213,15 @@ namespace GlassGlobe
                 return;
             }
 
-            CameraFeedEnabled = ReadBool(CameraFeedKey, true);
+            CameraFeedEnabled = ReadBool(CameraFeedKey, false);
             MainHudVisible = ReadBool(MainHudKey, true);
             CountryBannerVisible = ReadBool(CountryBannerKey, true);
-            CountryBannerAtTop = ReadBool(CountryBannerTopKey, true);
-            CountryOutlineColor = ReadColor(CountryOutlineColorKey, new Color(1f, 0.92f, 0.42f, 1f));
+            CountryOutlineColor = ReadColor(CountryOutlineColorKey, new Color(0.25f, 1f, 0.4f, 1f));
             GridColor = ReadColor(GridColorKey, new Color(0.15f, 0.88f, 1f, 0.95f));
             GridVisible = ReadBool(GridVisibleKey, true);
-            CountryOutlineThickness = Mathf.Clamp(PlayerPrefs.GetFloat(CountryOutlineThicknessKey, 1f), 0.25f, 3f);
-            GridThickness = Mathf.Clamp(PlayerPrefs.GetFloat(GridThicknessKey, 1f), 0.25f, 3f);
+            CountryOutlineThickness = Mathf.Clamp(PlayerPrefs.GetFloat(CountryOutlineThicknessKey, 0.25f), 0.25f, 3f);
+            GridThickness = Mathf.Clamp(PlayerPrefs.GetFloat(GridThicknessKey, 0.25f), 0.25f, 3f);
+            ShowSetNorthButton = ReadBool(ShowSetNorthButtonKey, true);
             HideUserCoordinates = ReadBool(HideUserCoordinatesKey, false);
             HideFarSideCoordinates = ReadBool(HideFarSideCoordinatesKey, false);
             HideLocationAccuracy = ReadBool(HideLocationAccuracyKey, false);
@@ -156,21 +235,29 @@ namespace GlassGlobe
             MilkyWayEnabled = ReadBool(MilkyWayKey, true);
             SunEnabled = ReadBool(SunKey, true);
             MoonEnabled = ReadBool(MoonKey, true);
-            NightLightsEnabled = ReadBool(NightLightsKey, true);
-            RimGlowEnabled = ReadBool(RimGlowKey, true);
-            WaterArtEnabled = ReadBool(WaterArtKey, false);
-            WaterArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(WaterArtOpacityKey, 0.75f));
+            NightLightsEnabled = false;
+            RimGlowEnabled = false;
+            WaterArtEnabled = ReadBool(WaterArtKey, true);
+            WaterArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(WaterArtOpacityKey, 0.35f));
             LandArtEnabled = ReadBool(LandArtKey, false);
             LandArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(LandArtOpacityKey, 0.65f));
-            OceanArtEnabled = ReadBool(OceanArtKey, false);
+            OceanArtEnabled = false;
             OceanArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(OceanArtOpacityKey, 0.85f));
-            ArtCloudsEnabled = ReadBool(ArtCloudsKey, false);
+            ArtCloudsEnabled = false;
             ArtCloudsOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(ArtCloudsOpacityKey, 0.8f));
-            WeatherCloudsEnabled = ReadBool(WeatherCloudsKey, true);
-            WeatherRadarEnabled = ReadBool(WeatherRadarKey, true);
+            WeatherCloudsEnabled = ReadBool(WeatherCloudsKey, false);
+            WeatherRadarEnabled = ReadBool(WeatherRadarKey, false);
             SatellitesEnabled = ReadBool(SatellitesKey, true);
-            EarthquakesEnabled = ReadBool(EarthquakesKey, true);
+            EarthquakesEnabled = ReadBool(EarthquakesKey, false);
             HeadingFineOffsetDegrees = ReadHeadingFineOffset();
+            ViewpointCategoryEnabled = ReadBool(ViewpointCategoryKey, true);
+            BackgroundCategoryEnabled = ReadBool(BackgroundCategoryKey, true);
+            DisplayCategoryEnabled = ReadBool(DisplayCategoryKey, true);
+            EarthStylesCategoryEnabled = ReadBool(EarthStylesCategoryKey, true);
+            WeatherCategoryEnabled = ReadBool(WeatherCategoryKey, true);
+            LiveDataCategoryEnabled = ReadBool(LiveDataCategoryKey, true);
+            OrientCategoryEnabled = ReadBool(OrientCategoryKey, true);
+            PrivacyCategoryEnabled = ReadBool(PrivacyCategoryKey, true);
             loaded = true;
         }
 
@@ -193,13 +280,6 @@ namespace GlassGlobe
             Load();
             CountryBannerVisible = value;
             WriteBool(CountryBannerKey, value);
-        }
-
-        public static void SetCountryBannerAtTop(bool value)
-        {
-            Load();
-            CountryBannerAtTop = value;
-            WriteBool(CountryBannerTopKey, value);
         }
 
         public static void SetCountryOutlineColor(Color value)
@@ -235,6 +315,13 @@ namespace GlassGlobe
             Load();
             GridThickness = Mathf.Clamp(value, 0.25f, 3f);
             WriteFloat(GridThicknessKey, GridThickness);
+        }
+
+        public static void SetShowSetNorthButton(bool value)
+        {
+            Load();
+            ShowSetNorthButton = value;
+            WriteBool(ShowSetNorthButtonKey, value);
         }
 
         public static void SetHideUserCoordinates(bool value)
@@ -337,20 +424,6 @@ namespace GlassGlobe
             WriteBool(MilkyWayKey, value);
         }
 
-        public static void SetNightLightsEnabled(bool value)
-        {
-            Load();
-            NightLightsEnabled = value;
-            WriteBool(NightLightsKey, value);
-        }
-
-        public static void SetRimGlowEnabled(bool value)
-        {
-            Load();
-            RimGlowEnabled = value;
-            WriteBool(RimGlowKey, value);
-        }
-
         public static void SetWaterArtEnabled(bool value)
         {
             Load();
@@ -361,7 +434,7 @@ namespace GlassGlobe
         public static void SetWaterArtOpacity(float value)
         {
             Load();
-            WaterArtOpacity = Mathf.Clamp(value, 0.05f, 1f);
+            WaterArtOpacity = Mathf.Clamp01(value);
             WriteFloat(WaterArtOpacityKey, WaterArtOpacity);
         }
 
@@ -375,15 +448,8 @@ namespace GlassGlobe
         public static void SetLandArtOpacity(float value)
         {
             Load();
-            LandArtOpacity = Mathf.Clamp(value, 0.05f, 1f);
+            LandArtOpacity = Mathf.Clamp01(value);
             WriteFloat(LandArtOpacityKey, LandArtOpacity);
-        }
-
-        public static void SetOceanArtEnabled(bool value)
-        {
-            Load();
-            OceanArtEnabled = value;
-            WriteBool(OceanArtKey, value);
         }
 
         public static void SetOceanArtOpacity(float value)
@@ -391,13 +457,6 @@ namespace GlassGlobe
             Load();
             OceanArtOpacity = Mathf.Clamp(value, 0.05f, 1f);
             WriteFloat(OceanArtOpacityKey, OceanArtOpacity);
-        }
-
-        public static void SetArtCloudsEnabled(bool value)
-        {
-            Load();
-            ArtCloudsEnabled = value;
-            WriteBool(ArtCloudsKey, value);
         }
 
         public static void SetArtCloudsOpacity(float value)
@@ -445,6 +504,62 @@ namespace GlassGlobe
 
             HeadingFineOffsetDegrees = Mathf.Repeat(offsetDegrees + 180f, 360f) - 180f;
             WriteFloat(HeadingFineOffsetKey, HeadingFineOffsetDegrees);
+        }
+
+        public static void SetViewpointCategoryEnabled(bool value)
+        {
+            Load();
+            ViewpointCategoryEnabled = value;
+            WriteBool(ViewpointCategoryKey, value);
+        }
+
+        public static void SetBackgroundCategoryEnabled(bool value)
+        {
+            Load();
+            BackgroundCategoryEnabled = value;
+            WriteBool(BackgroundCategoryKey, value);
+        }
+
+        public static void SetDisplayCategoryEnabled(bool value)
+        {
+            Load();
+            DisplayCategoryEnabled = value;
+            WriteBool(DisplayCategoryKey, value);
+        }
+
+        public static void SetEarthStylesCategoryEnabled(bool value)
+        {
+            Load();
+            EarthStylesCategoryEnabled = value;
+            WriteBool(EarthStylesCategoryKey, value);
+        }
+
+        public static void SetWeatherCategoryEnabled(bool value)
+        {
+            Load();
+            WeatherCategoryEnabled = value;
+            WriteBool(WeatherCategoryKey, value);
+        }
+
+        public static void SetLiveDataCategoryEnabled(bool value)
+        {
+            Load();
+            LiveDataCategoryEnabled = value;
+            WriteBool(LiveDataCategoryKey, value);
+        }
+
+        public static void SetOrientCategoryEnabled(bool value)
+        {
+            Load();
+            OrientCategoryEnabled = value;
+            WriteBool(OrientCategoryKey, value);
+        }
+
+        public static void SetPrivacyCategoryEnabled(bool value)
+        {
+            Load();
+            PrivacyCategoryEnabled = value;
+            WriteBool(PrivacyCategoryKey, value);
         }
 
         private static float ReadHeadingFineOffset()

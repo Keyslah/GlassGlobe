@@ -73,7 +73,8 @@ public static class GlassGlobeBuildValidator
         if (phonePose != null)
         {
             LogRequired(ref errors, phonePose.targetCamera != null, "GlassGlobeBuildValidator: PhonePoseSimulator targetCamera is not assigned.");
-            LogRequired(ref errors, phonePose.eyeToPhoneDistanceInches >= 9f && phonePose.eyeToPhoneDistanceInches <= 11f, "GlassGlobeBuildValidator: eye-to-phone baseline should be about 10 inches.");
+            LogRequired(ref errors, phonePose.eyeToPhoneDistanceInches >= 12.5f && phonePose.eyeToPhoneDistanceInches <= 14.5f, "GlassGlobeBuildValidator: eye-to-phone baseline should be about 13.5 inches.");
+            LogRequired(ref errors, phonePose.PhysicalViewportFovDegrees >= 23f && phonePose.PhysicalViewportFovDegrees <= 26f, "GlassGlobeBuildValidator: default viewport FOV should approximate handheld physical scale.");
         }
 
         FarSideRaycaster raycaster = FindInScene<FarSideRaycaster>(scene);
