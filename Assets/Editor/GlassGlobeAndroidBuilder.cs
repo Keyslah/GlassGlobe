@@ -125,7 +125,7 @@ public static class GlassGlobeAndroidBuilder
             PlayerSettings.bundleVersion = VersionName;
             PlayerSettings.Android.bundleVersionCode = VersionCode;
             PlayerSettings.Android.minSdkVersion =
-                AndroidSdkVersions.AndroidApiLevel24;
+                AndroidSdkVersions.AndroidApiLevel25;
             ConfigurePortraitOrientation();
             PlayerSettings.SetScriptingBackend(
                 NamedBuildTarget.Android,
