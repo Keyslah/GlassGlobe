@@ -84,11 +84,11 @@ public static class GlassGlobeArCoreProjectSetup
         }
 
         PlayerSettings.Android.minSdkVersion =
-            AndroidSdkVersions.AndroidApiLevel24;
+            AndroidSdkVersions.AndroidApiLevel25;
 
-        // AR Foundation and ARCore are pinned to 6.0.6 for this Unity 6000.0
-        // project. That line uses OpenGL ES on Android, so do not allow Unity's
-        // automatic graphics selection to place Vulkan first.
+        // This project renders through OpenGL ES on Android (AR Foundation /
+        // ARCore 6.3.x on Unity 6000.3), so do not allow Unity's automatic
+        // graphics selection to place Vulkan first.
         PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
         PlayerSettings.SetGraphicsAPIs(
             BuildTarget.Android,

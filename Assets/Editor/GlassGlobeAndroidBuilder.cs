@@ -11,9 +11,9 @@ public static class GlassGlobeAndroidBuilder
     private const string OutputPath = "Builds/Android/GlassGlobePreview.apk";
     private const string PreviewPackageName = "com.glassglobe.preview";
     private const string PlayPackageName = "com.GlassGlobe.myapp";
-    private const string VersionName = "0.2.3";
-    private const int VersionCode = 14;
-    private const string PlayBundleOutputPath = "Builds/Android/GlassGlobe-0.2.3-14.aab";
+    private const string VersionName = "0.2.4";
+    private const int VersionCode = 16;
+    private const string PlayBundleOutputPath = "Builds/Android/GlassGlobe-0.2.4-16.aab";
 
     [MenuItem("GlassGlobe/Build Android Preview APK")]
     public static void BuildPreviewApk()
@@ -41,7 +41,7 @@ public static class GlassGlobeAndroidBuilder
         PlayerSettings.bundleVersion = VersionName;
         PlayerSettings.Android.bundleVersionCode = VersionCode;
         PlayerSettings.Android.minSdkVersion =
-            AndroidSdkVersions.AndroidApiLevel24;
+            AndroidSdkVersions.AndroidApiLevel25;
         ConfigurePortraitOrientation();
         PlayerSettings.SetScriptingBackend(
             NamedBuildTarget.Android,
