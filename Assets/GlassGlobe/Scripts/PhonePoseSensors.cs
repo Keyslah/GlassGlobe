@@ -297,6 +297,10 @@ namespace GlassGlobe
                 return false;
             }
 
+            // Set North is also the recovery path for a stale or bad heading
+            // lock. Clear the same correction state as Reset Heading before
+            // capturing a fresh north alignment.
+            ResetHeadingCorrection();
 
             // If an AR tracker is present, do not silently drop back to the
             // drifting gyro frame while ARCore is merely initializing. The user

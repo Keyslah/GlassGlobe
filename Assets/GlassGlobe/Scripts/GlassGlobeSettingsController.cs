@@ -182,6 +182,8 @@ namespace GlassGlobe
         private float zoomIndicatorCurrentFov = PhonePoseSimulator.DefaultViewportFovDegrees;
         private float zoomIndicatorDefaultFov = PhonePoseSimulator.DefaultViewportFovDegrees;
         private GUIStyle zoomIndicatorStyle;
+        private GlassGlobePortraitUi.Rotation lastUiRotation =
+            GlassGlobePortraitUi.Rotation.Portrait;
 
         public static GlassGlobeSettingsController EnsureInstance(GlassGlobeHUD owner)
         {
@@ -241,6 +243,15 @@ namespace GlassGlobe
             CaptureSimulatorDefault();
             BuildViewpointChoices();
             TrackInteraction();
+
+            GlassGlobePortraitUi.Rotation uiRotation =
+                GlassGlobePortraitUi.CurrentRotation;
+            if (uiRotation != lastUiRotation)
+            {
+                lastUiRotation = uiRotation;
+                ResetTrackedTouch();
+            }
+
             HandleMobileTouch();
             ApplySettingsIfChanged();
 
@@ -258,6 +269,9 @@ namespace GlassGlobe
         private void OnGUI()
         {
             EnsureStyles();
+            Matrix4x4 previousMatrix = GUI.matrix;
+            GUI.matrix = GlassGlobePortraitUi.GuiMatrix;
+
             if (Application.isMobilePlatform && Event.current.type == EventType.Repaint)
             {
                 touchTargets.Clear();
@@ -275,10 +289,12 @@ namespace GlassGlobe
                     Event.current.Use();
                 }
 
+                GUI.matrix = previousMatrix;
                 return;
             }
 
             DrawSettingsPage();
+            GUI.matrix = previousMatrix;
         }
 
         private void OpenSettings()

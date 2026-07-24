@@ -5,6 +5,8 @@ namespace GlassGlobe
 {
     public sealed class GlassGlobeHUD : MonoBehaviour
     {
+        private const float LaunchNorthPromptFadeDurationSeconds = 0.45f;
+
         public PhonePoseSimulator phonePose;
         public PhonePoseSensors poseSensors;
         public CameraFeedRenderer cameraFeed;
@@ -18,14 +20,22 @@ namespace GlassGlobe
         private GUIStyle readoutStyle;
         private GUIStyle labelStyle;
         private GUIStyle countryBannerStyle;
+        private GUIStyle launchNorthMessageStyle;
+        private GUIStyle launchNorthButtonStyle;
+        private GUIStyle launchNorthStatusStyle;
         private Rect tiltTouchRect;
         private Rect headingTouchRect;
         private Rect straightDownTouchRect;
         private Rect fortyFiveTouchRect;
         private Rect nearHorizonTouchRect;
         private Rect alignTouchRect;
+        private Rect launchNorthPromptTouchRect;
+        private Rect launchNorthPromptInteractiveRect;
         private string alignmentStatusText = string.Empty;
         private float alignmentStatusUntil;
+        private string launchNorthPromptStatusText = string.Empty;
+        private float launchNorthPromptFadeStartedAt = -1f;
+        private bool launchNorthPromptDismissed;
         private Rect activePanelRect;
         private float activeUiScale = 1f;
         private TouchSlider activeTouchSlider;
@@ -33,6 +43,8 @@ namespace GlassGlobe
         private int trackedTouchFingerId = -1;
         private Vector2 touchStartScreenPoint;
         private bool touchDragged;
+        private GlassGlobePortraitUi.Rotation lastUiRotation =
+            GlassGlobePortraitUi.Rotation.Portrait;
 
         private enum TouchSlider
         {
@@ -44,6 +56,7 @@ namespace GlassGlobe
         private enum SensorTouchAction
         {
             None,
+            LaunchSetNorth,
             SetNorth
         }
 
@@ -61,6 +74,14 @@ namespace GlassGlobe
         private void Update()
         {
             ResolveReferences();
+            GlassGlobePortraitUi.Rotation uiRotation =
+                GlassGlobePortraitUi.CurrentRotation;
+            if (uiRotation != lastUiRotation)
+            {
+                lastUiRotation = uiRotation;
+                ResetTrackedTouch();
+            }
+
             if (!showHud)
             {
                 activeTouchSlider = TouchSlider.None;
@@ -83,10 +104,22 @@ namespace GlassGlobe
             Matrix4x4 previousMatrix = GUI.matrix;
             float uiScale = GetMobileUiScale();
             activeUiScale = uiScale;
-            GUI.matrix = Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
+            GUI.matrix =
+                GlassGlobePortraitUi.GuiMatrix *
+                Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
 
             Rect responsivePanel = panelRect;
-            responsivePanel.width = Mathf.Min(panelRect.width, Screen.width / uiScale - panelRect.x * 2f);
+            float logicalScreenWidth =
+                GlassGlobePortraitUi.Width / uiScale;
+            responsivePanel.width = Mathf.Min(
+                panelRect.width,
+                logicalScreenWidth - panelRect.x * 2f);
+            if (Application.isMobilePlatform)
+            {
+                responsivePanel.x =
+                    (logicalScreenWidth - responsivePanel.width) * 0.5f;
+            }
+
             float bannerHeight = Application.isMobilePlatform ? 72f : 56f;
             bool displayEnabled = GlassGlobeSettingsState.DisplayCategoryEnabled;
             if (displayEnabled)
@@ -122,6 +155,7 @@ namespace GlassGlobe
             }
 
             DrawViewportSetNorthButton(uiScale);
+            DrawLaunchNorthPrompt(uiScale);
             GUI.matrix = previousMatrix;
         }
 
@@ -205,18 +239,21 @@ namespace GlassGlobe
         private void DrawViewportSetNorthButton(float uiScale)
         {
             alignTouchRect = Rect.zero;
-            if (!SensorModeActive() || !GlassGlobeSettingsState.EffectiveShowSetNorthButton)
+            if (!SensorModeActive() ||
+                !GlassGlobeSettingsState.EffectiveShowSetNorthButton ||
+                LaunchNorthPromptVisible())
             {
                 return;
             }
 
-            Rect safeArea = Screen.safeArea;
-            float logicalWidth = Screen.width / uiScale;
-            float safeBottom = (Screen.height - safeArea.yMin) / uiScale;
-            float width = Mathf.Min(240f, logicalWidth - 40f);
+            Rect safeArea = GlassGlobePortraitUi.SafeArea;
+            float safeX = safeArea.xMin / uiScale;
+            float safeWidth = safeArea.width / uiScale;
+            float safeBottom = safeArea.yMax / uiScale;
+            float width = Mathf.Min(240f, safeWidth - 40f);
             float height = Application.isMobilePlatform ? 64f : 46f;
             Rect buttonRect = new Rect(
-                (logicalWidth - width) * 0.5f,
+                safeX + (safeWidth - width) * 0.5f,
                 safeBottom - height - 24f,
                 width,
                 height);
@@ -232,7 +269,138 @@ namespace GlassGlobe
             }
         }
 
-        private void AlignPhoneToNorth()
+        private void DrawLaunchNorthPrompt(float uiScale)
+        {
+            launchNorthPromptTouchRect = Rect.zero;
+            launchNorthPromptInteractiveRect = Rect.zero;
+            if (!LaunchNorthPromptVisible())
+            {
+                return;
+            }
+
+            float alpha = 1f;
+            if (launchNorthPromptFadeStartedAt >= 0f)
+            {
+                float fadeProgress =
+                    (Time.unscaledTime - launchNorthPromptFadeStartedAt) /
+                    LaunchNorthPromptFadeDurationSeconds;
+                if (fadeProgress >= 1f)
+                {
+                    launchNorthPromptDismissed = true;
+                    return;
+                }
+
+                alpha = 1f - Mathf.Clamp01(fadeProgress);
+            }
+
+            Rect safeArea = GlassGlobePortraitUi.SafeArea;
+            float safeX = safeArea.xMin / uiScale;
+            float safeTop = safeArea.yMin / uiScale;
+            float safeWidth = safeArea.width / uiScale;
+            float safeHeight = safeArea.height / uiScale;
+            float contentWidth = Mathf.Min(460f, safeWidth - 40f);
+            float messageHeight = 100f;
+            float buttonHeight = 96f;
+            float gap = 18f;
+            float statusHeight = 48f;
+            float contentHeight =
+                messageHeight + gap + buttonHeight + statusHeight;
+            float contentX =
+                safeX + (safeWidth - contentWidth) * 0.5f;
+            float contentY =
+                safeTop + (safeHeight - contentHeight) * 0.5f;
+
+            Rect messageRect = new Rect(
+                contentX,
+                contentY,
+                contentWidth,
+                messageHeight);
+            Rect buttonRect = new Rect(
+                contentX,
+                messageRect.yMax + gap,
+                contentWidth,
+                buttonHeight);
+            Rect statusRect = new Rect(
+                contentX,
+                buttonRect.yMax + 6f,
+                contentWidth,
+                statusHeight);
+
+            launchNorthMessageStyle.normal.textColor =
+                new Color(1f, 1f, 1f, alpha);
+            GUI.Label(
+                messageRect,
+                "Set north while holding the phone upright and facing north",
+                launchNorthMessageStyle);
+
+            DrawSolidRect(
+                buttonRect,
+                new Color(0f, 0f, 0f, 0.18f * alpha));
+            DrawRectOutline(
+                buttonRect,
+                2f,
+                new Color(1f, 1f, 1f, 0.9f * alpha));
+
+            launchNorthButtonStyle.normal.textColor =
+                new Color(1f, 1f, 1f, alpha);
+            launchNorthButtonStyle.hover.textColor =
+                new Color(1f, 1f, 1f, alpha);
+            launchNorthButtonStyle.active.textColor =
+                new Color(0.75f, 0.95f, 1f, alpha);
+            bool clicked = GUI.Button(
+                buttonRect,
+                "Set North",
+                launchNorthButtonStyle);
+
+            launchNorthPromptTouchRect = ScaleRect(buttonRect, uiScale);
+            launchNorthPromptInteractiveRect = ScaleRect(
+                new Rect(
+                    contentX,
+                    contentY,
+                    contentWidth,
+                    contentHeight),
+                uiScale);
+
+            if (!string.IsNullOrEmpty(launchNorthPromptStatusText))
+            {
+                launchNorthStatusStyle.normal.textColor =
+                    new Color(0.88f, 0.96f, 1f, alpha);
+                GUI.Label(
+                    statusRect,
+                    launchNorthPromptStatusText,
+                    launchNorthStatusStyle);
+            }
+
+            if (clicked && !Application.isMobilePlatform)
+            {
+                TryCompleteLaunchNorthPrompt();
+            }
+        }
+
+        private void TryCompleteLaunchNorthPrompt()
+        {
+            if (launchNorthPromptFadeStartedAt >= 0f)
+            {
+                return;
+            }
+
+            if (AlignPhoneToNorth())
+            {
+                launchNorthPromptStatusText = string.Empty;
+                launchNorthPromptFadeStartedAt = Time.unscaledTime;
+                return;
+            }
+
+            launchNorthPromptStatusText =
+                "Getting orientation ready - try again in a moment.";
+        }
+
+        private bool LaunchNorthPromptVisible()
+        {
+            return Application.isMobilePlatform && !launchNorthPromptDismissed;
+        }
+
+        private bool AlignPhoneToNorth()
         {
             float correctionDegrees;
             if (poseSensors == null || !poseSensors.TryAlignCurrentHeadingToNorth(out correctionDegrees))
@@ -242,7 +410,7 @@ namespace GlassGlobe
                     : "North not set: " + poseSensors.OrientationStatus;
                 alignmentStatusUntil = Time.unscaledTime + 3f;
                 Debug.LogWarning("GlassGlobeHUD: Set North is waiting for orientation tracking.");
-                return;
+                return false;
             }
 
             alignmentStatusText = (poseSensors.ArNorthLockActive ? "ARCore north locked: " : "Gyro north locked: ") +
@@ -250,6 +418,7 @@ namespace GlassGlobe
             alignmentStatusUntil = Time.unscaledTime + 3f;
             Debug.Log("GlassGlobeHUD: north locked; correction=" +
                 correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg");
+            return true;
         }
 
         public void SetPresetStraightDown()
@@ -316,7 +485,10 @@ namespace GlassGlobe
             }
 
             Touch touch = Input.GetTouch(0);
-            Vector2 screenPoint = new Vector2(touch.position.x, Screen.height - touch.position.y);
+            Vector2 screenPoint = GlassGlobePortraitUi.ScreenToUi(
+                new Vector2(
+                    touch.position.x,
+                    Screen.height - touch.position.y));
 
             if (touch.phase == TouchPhase.Began)
             {
@@ -394,6 +566,11 @@ namespace GlassGlobe
 
         private SensorTouchAction FindSensorTouchAction(Vector2 screenPoint)
         {
+            if (launchNorthPromptTouchRect.Contains(screenPoint))
+            {
+                return SensorTouchAction.LaunchSetNorth;
+            }
+
             if (alignTouchRect.Contains(screenPoint)) return SensorTouchAction.SetNorth;
             return SensorTouchAction.None;
         }
@@ -402,6 +579,8 @@ namespace GlassGlobe
         {
             switch (action)
             {
+                case SensorTouchAction.LaunchSetNorth:
+                    return launchNorthPromptTouchRect;
                 case SensorTouchAction.SetNorth: return alignTouchRect;
                 default: return Rect.zero;
             }
@@ -411,6 +590,9 @@ namespace GlassGlobe
         {
             switch (action)
             {
+                case SensorTouchAction.LaunchSetNorth:
+                    TryCompleteLaunchNorthPrompt();
+                    break;
                 case SensorTouchAction.SetNorth:
                     AlignPhoneToNorth();
                     break;
@@ -419,8 +601,60 @@ namespace GlassGlobe
 
         public bool IsInteractiveScreenPoint(Vector2 screenPoint)
         {
-            return GlassGlobeSettingsState.EffectiveShowSetNorthButton &&
-                alignTouchRect.Contains(screenPoint);
+            Vector2 uiPoint =
+                GlassGlobePortraitUi.ScreenToUi(screenPoint);
+            return IsInteractiveUiPoint(uiPoint);
+        }
+
+        public bool IsInteractiveUiPoint(Vector2 uiPoint)
+        {
+            return launchNorthPromptInteractiveRect.Contains(uiPoint) ||
+                (GlassGlobeSettingsState.EffectiveShowSetNorthButton &&
+                    alignTouchRect.Contains(uiPoint));
+        }
+
+        private static Rect ScaleRect(Rect rect, float scale)
+        {
+            return new Rect(
+                rect.x * scale,
+                rect.y * scale,
+                rect.width * scale,
+                rect.height * scale);
+        }
+
+        private static void DrawSolidRect(Rect rect, Color color)
+        {
+            Color previousColor = GUI.color;
+            GUI.color = color;
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = previousColor;
+        }
+
+        private static void DrawRectOutline(
+            Rect rect,
+            float thickness,
+            Color color)
+        {
+            DrawSolidRect(
+                new Rect(rect.x, rect.y, rect.width, thickness),
+                color);
+            DrawSolidRect(
+                new Rect(
+                    rect.x,
+                    rect.yMax - thickness,
+                    rect.width,
+                    thickness),
+                color);
+            DrawSolidRect(
+                new Rect(rect.x, rect.y, thickness, rect.height),
+                color);
+            DrawSolidRect(
+                new Rect(
+                    rect.xMax - thickness,
+                    rect.y,
+                    thickness,
+                    rect.height),
+                color);
         }
 
         private void ResetTrackedTouch()
@@ -720,6 +954,26 @@ namespace GlassGlobe
             countryBannerStyle.alignment = TextAnchor.MiddleCenter;
             countryBannerStyle.wordWrap = true;
             countryBannerStyle.normal.textColor = new Color(0.92f, 0.98f, 1f, 1f);
+
+            launchNorthMessageStyle = new GUIStyle(GUI.skin.label);
+            launchNorthMessageStyle.fontSize = 23;
+            launchNorthMessageStyle.fontStyle = FontStyle.Bold;
+            launchNorthMessageStyle.alignment = TextAnchor.MiddleCenter;
+            launchNorthMessageStyle.wordWrap = true;
+
+            launchNorthButtonStyle = new GUIStyle(GUI.skin.button);
+            launchNorthButtonStyle.fontSize = 27;
+            launchNorthButtonStyle.fontStyle = FontStyle.Bold;
+            launchNorthButtonStyle.alignment = TextAnchor.MiddleCenter;
+            launchNorthButtonStyle.normal.background = null;
+            launchNorthButtonStyle.hover.background = null;
+            launchNorthButtonStyle.active.background = null;
+            launchNorthButtonStyle.focused.background = null;
+
+            launchNorthStatusStyle = new GUIStyle(GUI.skin.label);
+            launchNorthStatusStyle.fontSize = 15;
+            launchNorthStatusStyle.alignment = TextAnchor.UpperCenter;
+            launchNorthStatusStyle.wordWrap = true;
         }
     }
 }

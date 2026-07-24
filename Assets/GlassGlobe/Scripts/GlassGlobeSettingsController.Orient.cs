@@ -30,7 +30,7 @@ namespace GlassGlobe
                 "Hold the phone upright and aim the center dot toward true north, then tap the button. ARCore keeps that heading locked using camera and motion tracking. Set north again whenever you want to reset it.",
                 bodyStyle);
             GUILayout.Space(6f);
-            DrawButton("My Phone Is Facing North", AlignPhoneToNorth, 50f);
+            DrawButton("My Phone Is Facing North", AlignPhoneToNorth, 72f);
             if (!string.IsNullOrEmpty(orientStatusMessage))
             {
                 GUILayout.Space(6f);
@@ -121,6 +121,7 @@ namespace GlassGlobe
                 (poseSensors.ArNorthLockActive ? "ARCore north locked. Applied " : "Gyro fallback north locked. Applied ") +
                 correctionDegrees.ToString("+0.0;-0.0;0.0") +
                 " deg; set it again whenever you want to reset the heading.";
+            BackToViewpoint();
         }
 
         private void StartAlignment(AlignBody body)
@@ -187,10 +188,16 @@ namespace GlassGlobe
                 Vector3 screenPoint = sceneCamera.WorldToScreenPoint(targetWorld);
                 if (screenPoint.z > 0f)
                 {
-                    float ringSize = Screen.height * 0.075f;
+                    Vector2 uiPoint =
+                        GlassGlobePortraitUi.ScreenToUi(
+                            new Vector2(
+                                screenPoint.x,
+                                Screen.height - screenPoint.y));
+                    float ringSize =
+                        GlassGlobePortraitUi.Height * 0.075f;
                     Rect ringRect = new Rect(
-                        screenPoint.x - ringSize * 0.5f,
-                        Screen.height - screenPoint.y - ringSize * 0.5f,
+                        uiPoint.x - ringSize * 0.5f,
+                        uiPoint.y - ringSize * 0.5f,
                         ringSize,
                         ringSize);
                     GUI.DrawTexture(ringRect, EnsureAlignRingTexture());
@@ -216,10 +223,15 @@ namespace GlassGlobe
                     tiltText);
 
             captureTextStyle.fontSize = Mathf.RoundToInt(15f * uiScale);
-            Rect safeArea = Screen.safeArea;
+            Rect safeArea = GlassGlobePortraitUi.SafeArea;
+            float logicalHeight = GlassGlobePortraitUi.Height;
             Color previousColor = GUI.color;
-            float boxHeight = Screen.height * 0.16f;
-            Rect instructionRect = new Rect(16f, Screen.height - safeArea.yMax + 16f, Screen.width - 32f, boxHeight);
+            float boxHeight = logicalHeight * 0.16f;
+            Rect instructionRect = new Rect(
+                safeArea.xMin + 16f,
+                safeArea.yMin + 16f,
+                safeArea.width - 32f,
+                boxHeight);
             GUI.color = new Color(0f, 0f, 0f, 0.6f);
             GUI.Box(instructionRect, GUIContent.none);
             GUI.color = previousColor;
@@ -239,7 +251,11 @@ namespace GlassGlobe
 
             if (!string.IsNullOrEmpty(orientStatusMessage))
             {
-                Rect statusRect = new Rect(16f, instructionRect.yMax + 8f, Screen.width - 32f, Screen.height * 0.08f);
+                Rect statusRect = new Rect(
+                    safeArea.xMin + 16f,
+                    instructionRect.yMax + 8f,
+                    safeArea.width - 32f,
+                    logicalHeight * 0.08f);
                 GUI.color = new Color(0f, 0f, 0f, 0.6f);
                 GUI.Box(statusRect, GUIContent.none);
                 GUI.color = previousColor;
@@ -249,12 +265,24 @@ namespace GlassGlobe
                     captureTextStyle);
             }
 
-            float buttonHeight = Mathf.Clamp(Screen.height * 0.065f, 48f, 110f);
-            float buttonWidth = Screen.width * 0.42f;
-            float safeBottom = Screen.height - safeArea.yMin;
+            float buttonHeight = Mathf.Clamp(
+                logicalHeight * 0.065f,
+                48f,
+                110f);
+            float buttonWidth = safeArea.width * 0.42f;
+            float safeBottom = safeArea.yMax;
             float buttonY = safeBottom - buttonHeight - 24f;
-            Rect captureRect = new Rect(Screen.width * 0.5f - buttonWidth - 8f, buttonY, buttonWidth, buttonHeight);
-            Rect cancelRect = new Rect(Screen.width * 0.5f + 8f, buttonY, buttonWidth, buttonHeight);
+            float centerX = safeArea.xMin + safeArea.width * 0.5f;
+            Rect captureRect = new Rect(
+                centerX - buttonWidth - 8f,
+                buttonY,
+                buttonWidth,
+                buttonHeight);
+            Rect cancelRect = new Rect(
+                centerX + 8f,
+                buttonY,
+                buttonWidth,
+                buttonHeight);
 
             entryButtonStyle.fontSize = Mathf.RoundToInt(15f * uiScale);
             bool captureClicked = GUI.Button(captureRect, "Capture", entryButtonStyle);

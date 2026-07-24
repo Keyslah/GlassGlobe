@@ -214,14 +214,14 @@ namespace GlassGlobe
             }
 
             CameraFeedEnabled = ReadBool(CameraFeedKey, false);
-            MainHudVisible = ReadBool(MainHudKey, true);
+            MainHudVisible = ReadBool(MainHudKey, false);
             CountryBannerVisible = ReadBool(CountryBannerKey, true);
             CountryOutlineColor = ReadColor(CountryOutlineColorKey, new Color(0.25f, 1f, 0.4f, 1f));
             GridColor = ReadColor(GridColorKey, new Color(0.15f, 0.88f, 1f, 0.95f));
             GridVisible = ReadBool(GridVisibleKey, true);
             CountryOutlineThickness = Mathf.Clamp(PlayerPrefs.GetFloat(CountryOutlineThicknessKey, 0.25f), 0.25f, 3f);
             GridThickness = Mathf.Clamp(PlayerPrefs.GetFloat(GridThicknessKey, 0.25f), 0.25f, 3f);
-            ShowSetNorthButton = ReadBool(ShowSetNorthButtonKey, true);
+            ShowSetNorthButton = ReadBool(ShowSetNorthButtonKey, false);
             HideUserCoordinates = ReadBool(HideUserCoordinatesKey, false);
             HideFarSideCoordinates = ReadBool(HideFarSideCoordinatesKey, false);
             HideLocationAccuracy = ReadBool(HideLocationAccuracyKey, false);

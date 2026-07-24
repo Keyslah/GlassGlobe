@@ -31,8 +31,11 @@ namespace GlassGlobe
                 return;
             }
 
-            float x = Screen.width * 0.5f;
-            float y = Screen.height * 0.5f;
+            Matrix4x4 previousMatrix = GUI.matrix;
+            GUI.matrix = GlassGlobePortraitUi.GuiMatrix;
+
+            float x = GlassGlobePortraitUi.Width * 0.5f;
+            float y = GlassGlobePortraitUi.Height * 0.5f;
             Color previousColor = GUI.color;
             GUI.color = reticleColor;
 
@@ -45,6 +48,7 @@ namespace GlassGlobe
             DrawCelestialName(x, y);
 
             GUI.color = previousColor;
+            GUI.matrix = previousMatrix;
         }
 
         private void DrawCelestialName(float centerX, float centerY)
@@ -104,12 +108,14 @@ namespace GlassGlobe
             {
                 nameStyle = new GUIStyle(GUI.skin.label);
                 nameStyle.alignment = TextAnchor.MiddleCenter;
-                nameStyle.fontSize = Mathf.Max(16, Screen.height / 45);
                 nameStyle.fontStyle = FontStyle.Bold;
                 nameStyle.normal.textColor = Color.white;
                 nameStyle.clipping = TextClipping.Overflow;
             }
 
+            nameStyle.fontSize = Mathf.Max(
+                16,
+                Mathf.RoundToInt(GlassGlobePortraitUi.Height / 45f));
             float labelHeight = Mathf.Max(48f, nameStyle.fontSize * 1.65f);
             float labelWidth = Mathf.Max(240f, nameStyle.CalcSize(new GUIContent(popupBodyName)).x + 36f);
             Rect labelRect = new Rect(

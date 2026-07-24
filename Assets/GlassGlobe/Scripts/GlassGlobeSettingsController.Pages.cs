@@ -19,14 +19,20 @@ namespace GlassGlobe
 
             Color previousColor = GUI.color;
             GUI.color = new Color(0f, 0f, 0f, 0.72f);
-            GUI.Box(new Rect(0f, 0f, Screen.width, Screen.height), GUIContent.none);
+            GUI.Box(
+                new Rect(
+                    0f,
+                    0f,
+                    GlassGlobePortraitUi.Width,
+                    GlassGlobePortraitUi.Height),
+                GUIContent.none);
             GUI.color = previousColor;
 
             activeUiScale = GlassGlobeUi.GetMobileUiScale();
 
-            Rect safeArea = Screen.safeArea;
+            Rect safeArea = GlassGlobePortraitUi.SafeArea;
             float safeX = safeArea.xMin / activeUiScale;
-            float safeY = (Screen.height - safeArea.yMax) / activeUiScale;
+            float safeY = safeArea.yMin / activeUiScale;
             float logicalWidth = safeArea.width / activeUiScale;
             float logicalHeight = safeArea.height / activeUiScale;
             float panelWidth = Mathf.Min(540f, logicalWidth - 24f);
@@ -38,7 +44,10 @@ namespace GlassGlobe
                 panelHeight);
 
             Matrix4x4 previousMatrix = GUI.matrix;
-            GUI.matrix = Matrix4x4.Scale(new Vector3(activeUiScale, activeUiScale, 1f));
+            GUI.matrix =
+                previousMatrix *
+                Matrix4x4.Scale(
+                    new Vector3(activeUiScale, activeUiScale, 1f));
             GUILayout.BeginArea(activeAreaRect, GUI.skin.box);
             activeTouchViewportRect = new Rect(
                 activeAreaRect.x * activeUiScale,
@@ -92,7 +101,7 @@ namespace GlassGlobe
             GUILayout.Space(8f);
             DrawButton("Back to Viewport", BackToViewpoint, 46f);
             GUILayout.Space(8f);
-            DrawButton("Set North", AlignPhoneToNorth, 50f);
+            DrawButton("Set North", AlignPhoneToNorth, 72f);
             if (!string.IsNullOrEmpty(orientStatusMessage))
             {
                 GUILayout.Space(6f);

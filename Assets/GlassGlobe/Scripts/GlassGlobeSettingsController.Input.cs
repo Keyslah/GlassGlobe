@@ -81,7 +81,11 @@ namespace GlassGlobe
             }
 
             Touch touch = Input.GetTouch(0);
-            Vector2 screenPoint = new Vector2(touch.position.x, Screen.height - touch.position.y);
+            Vector2 physicalScreenPoint = new Vector2(
+                touch.position.x,
+                Screen.height - touch.position.y);
+            Vector2 screenPoint =
+                GlassGlobePortraitUi.ScreenToUi(physicalScreenPoint);
             if (touch.phase == TouchPhase.Began)
             {
                 trackedTouchFingerId = touch.fingerId;
@@ -105,9 +109,19 @@ namespace GlassGlobe
 
             if (touch.phase == TouchPhase.Moved && scrollTouchActive)
             {
+                Vector2 previousTouchPosition =
+                    touch.position - touch.deltaPosition;
+                Vector2 previousPhysicalScreenPoint = new Vector2(
+                    previousTouchPosition.x,
+                    Screen.height - previousTouchPosition.y);
+                Vector2 previousUiPoint =
+                    GlassGlobePortraitUi.ScreenToUi(
+                        previousPhysicalScreenPoint);
+                Vector2 uiDelta = screenPoint - previousUiPoint;
                 settingsScrollPosition.y = Mathf.Max(
                     0f,
-                    settingsScrollPosition.y + touch.deltaPosition.y / Mathf.Max(1f, activeUiScale));
+                    settingsScrollPosition.y -
+                    uiDelta.y / Mathf.Max(1f, activeUiScale));
                 lastInteractionTime = Time.unscaledTime;
                 return;
             }
@@ -126,7 +140,7 @@ namespace GlassGlobe
             if (currentPage == SettingsPage.Closed)
             {
                 if (!touchDragged &&
-                    (hud == null || !hud.IsInteractiveScreenPoint(touchStartScreenPoint)))
+                    (hud == null || !hud.IsInteractiveUiPoint(touchStartScreenPoint)))
                 {
                     OpenSettings();
                 }
@@ -217,8 +231,8 @@ namespace GlassGlobe
                 ? 1f
                 : Mathf.Clamp01((zoomIndicatorVisibleUntil - Time.unscaledTime) / 0.9f);
             float scale = Mathf.Min(1.6f, GlassGlobeUi.GetMobileUiScale());
-            Rect safeArea = Screen.safeArea;
-            float topInset = Screen.height - safeArea.yMax;
+            Rect safeArea = GlassGlobePortraitUi.SafeArea;
+            float topInset = safeArea.yMin;
             float width = Mathf.Min(safeArea.width - 24f, 400f * scale);
             float height = 62f * scale;
             Rect panel = new Rect(
