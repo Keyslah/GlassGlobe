@@ -16,6 +16,11 @@
 # Logs
 *.log
 
+# Tooling data (memtrace code-intelligence DB and embedding models —
+# regenerable, not source; the ONNX model alone exceeds GitHub limits)
+.memdb/
+.memtrace/
+
 # IDE / OS
 .vs/
 .idea/
