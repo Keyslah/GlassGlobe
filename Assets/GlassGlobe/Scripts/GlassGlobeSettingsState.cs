@@ -3,6 +3,29 @@ using UnityEngine;
 namespace GlassGlobe
 {
     /// <summary>
+    /// Which map the glass globe surface wears. Blue Moon is the original
+    /// tinted glass shell; Blue Marble layers a NASA daylight map over it.
+    /// An enum rather than two flags so the selection can never be both or
+    /// neither.
+    /// </summary>
+    public enum GlobeSurfaceMode
+    {
+        BlueMoon,
+        BlueMarble
+    }
+
+    /// <summary>
+    /// Which NASA Blue Marble monthly composite the surface uses.
+    /// </summary>
+    public enum BlueMarbleSeason
+    {
+        Spring,
+        Summer,
+        Fall,
+        Winter
+    }
+
+    /// <summary>
     /// Persistent source of truth for the settings UI. Keeping the state separate
     /// from the page renderer lets future settings pages reuse the same values
     /// without coupling themselves to the current immediate-mode UI. Each setter
@@ -35,6 +58,9 @@ namespace GlassGlobe
         private const string MilkyWayKey = Prefix + "MilkyWay";
         private const string SunKey = Prefix + "Sun";
         private const string MoonKey = Prefix + "Moon";
+        private const string GlobeSurfaceModeKey = Prefix + "GlobeSurfaceMode";
+        private const string BlueMarbleSeasonKey = Prefix + "BlueMarbleSeason";
+        private const string BlueMarbleOpacityKey = Prefix + "BlueMarbleOpacity";
         private const string NightLightsKey = Prefix + "NightLights";
         private const string RimGlowKey = Prefix + "RimGlow";
         private const string WaterArtKey = Prefix + "WaterArt";
@@ -85,6 +111,9 @@ namespace GlassGlobe
         public static bool MilkyWayEnabled { get; private set; }
         public static bool SunEnabled { get; private set; }
         public static bool MoonEnabled { get; private set; }
+        public static GlobeSurfaceMode GlobeSurface { get; private set; }
+        public static BlueMarbleSeason BlueMarbleSeasonChoice { get; private set; }
+        public static float BlueMarbleOpacity { get; private set; }
         public static bool NightLightsEnabled { get; private set; }
         public static bool RimGlowEnabled { get; private set; }
         public static bool WaterArtEnabled { get; private set; }
@@ -115,6 +144,15 @@ namespace GlassGlobe
             {
                 Load();
                 return ViewpointCategoryEnabled && ViewpointOverrideEnabled;
+            }
+        }
+
+        public static bool EffectiveBlueMarbleEnabled
+        {
+            get
+            {
+                Load();
+                return BackgroundCategoryEnabled && GlobeSurface == GlobeSurfaceMode.BlueMarble;
             }
         }
 
@@ -235,6 +273,15 @@ namespace GlassGlobe
             MilkyWayEnabled = ReadBool(MilkyWayKey, true);
             SunEnabled = ReadBool(SunKey, true);
             MoonEnabled = ReadBool(MoonKey, true);
+            GlobeSurface = (GlobeSurfaceMode)Mathf.Clamp(
+                PlayerPrefs.GetInt(GlobeSurfaceModeKey, (int)GlobeSurfaceMode.BlueMoon),
+                (int)GlobeSurfaceMode.BlueMoon,
+                (int)GlobeSurfaceMode.BlueMarble);
+            BlueMarbleSeasonChoice = (BlueMarbleSeason)Mathf.Clamp(
+                PlayerPrefs.GetInt(BlueMarbleSeasonKey, (int)BlueMarbleSeason.Summer),
+                (int)BlueMarbleSeason.Spring,
+                (int)BlueMarbleSeason.Winter);
+            BlueMarbleOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(BlueMarbleOpacityKey, 1f));
             NightLightsEnabled = false;
             RimGlowEnabled = false;
             WaterArtEnabled = ReadBool(WaterArtKey, true);
@@ -424,6 +471,27 @@ namespace GlassGlobe
             WriteBool(MilkyWayKey, value);
         }
 
+        public static void SetGlobeSurface(GlobeSurfaceMode value)
+        {
+            Load();
+            GlobeSurface = value;
+            WriteInt(GlobeSurfaceModeKey, (int)value);
+        }
+
+        public static void SetBlueMarbleSeason(BlueMarbleSeason value)
+        {
+            Load();
+            BlueMarbleSeasonChoice = value;
+            WriteInt(BlueMarbleSeasonKey, (int)value);
+        }
+
+        public static void SetBlueMarbleOpacity(float value)
+        {
+            Load();
+            BlueMarbleOpacity = Mathf.Clamp01(value);
+            WriteFloat(BlueMarbleOpacityKey, BlueMarbleOpacity);
+        }
+
         public static void SetWaterArtEnabled(bool value)
         {
             Load();
@@ -593,6 +661,12 @@ namespace GlassGlobe
         private static void WriteBool(string key, bool value)
         {
             PlayerPrefs.SetInt(key, value ? 1 : 0);
+            PlayerPrefs.Save();
+        }
+
+        private static void WriteInt(string key, int value)
+        {
+            PlayerPrefs.SetInt(key, value);
             PlayerPrefs.Save();
         }
 

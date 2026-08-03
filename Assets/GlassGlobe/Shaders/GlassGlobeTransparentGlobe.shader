@@ -3,6 +3,8 @@ Shader "GlassGlobe/Transparent Globe"
     Properties
     {
         _Color ("Color", Color) = (0.05, 0.24, 0.32, 0.16)
+        _BlueMarbleTex ("Blue Marble Map", 2D) = "black" {}
+        _BlueMarbleOpacity ("Blue Marble Opacity", Range(0, 1)) = 0
         _NightTex ("Night Lights Map", 2D) = "black" {}
         _NightTint ("Night Lights Tint", Color) = (1, 0.87, 0.62, 1)
         _NightIntensity ("Night Lights Intensity", Range(0, 3)) = 0
@@ -46,6 +48,8 @@ Shader "GlassGlobe/Transparent Globe"
             };
 
             fixed4 _Color;
+            sampler2D _BlueMarbleTex;
+            half _BlueMarbleOpacity;
             sampler2D _NightTex;
             fixed4 _NightTint;
             half _NightIntensity;
@@ -69,6 +73,14 @@ Shader "GlassGlobe/Transparent Globe"
             fixed4 Frag(Varyings input) : SV_Target
             {
                 fixed4 color = _Color;
+
+                // Blue Marble sits between the glass tint and the night/rim
+                // layers: at 0 the glass is untouched, at 1 the daylight map is
+                // fully opaque. It shares input.uv, so it inherits the same
+                // mirrored-longitude correction as the night-lights map.
+                fixed3 marble = tex2D(_BlueMarbleTex, input.uv).rgb;
+                color.rgb = lerp(color.rgb, marble, _BlueMarbleOpacity);
+                color.a = lerp(color.a, 1.0, _BlueMarbleOpacity);
 
                 fixed3 night = tex2D(_NightTex, input.uv).rgb * _NightTint.rgb * _NightIntensity;
                 half nightLuminance = dot(night, half3(0.299, 0.587, 0.114));

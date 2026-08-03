@@ -60,6 +60,19 @@ outdoors, worse near metal or indoors. The **Align** button snaps to the compass
 Country boundaries: [Natural Earth](https://www.naturalearthdata.com/) 1:110m
 Admin 0 — public domain. Thank you, Natural Earth.
 
+Globe surface (Blue Marble): [NASA Earth Observatory Blue Marble Next
+Generation](https://visibleearth.nasa.gov/collection/1484/blue-marble), Reto
+Stöckli, NASA Earth Observatory (NASA Goddard Space Flight Center) — public
+domain. The four seasonal choices are the `world.topo.bathy` monthly composites,
+downsampled from 5400×2700 to 4096×2048:
+
+| Season | Source composite | Image record |
+| --- | --- | --- |
+| Winter | `world.topo.bathy.200401.3x5400x2700.jpg` | [73580](https://visibleearth.nasa.gov/images/73580/) |
+| Spring | `world.topo.bathy.200404.3x5400x2700.jpg` | [73655](https://visibleearth.nasa.gov/images/73655/) |
+| Summer | `world.topo.bathy.200407.3x5400x2700.jpg` | [73751](https://visibleearth.nasa.gov/images/73751/) |
+| Fall | `world.topo.bathy.200410.3x5400x2700.jpg` | [73826](https://visibleearth.nasa.gov/images/73826/) |
+
 Milky Way panorama: [ESO/S. Brunier](https://www.eso.org/public/images/eso0932a/)
 (eso0932a), CC BY 4.0. The panorama is authored in galactic coordinates; the app
 rotates it by your position and the current sidereal time so the galaxy sits

@@ -196,6 +196,61 @@ namespace GlassGlobe
             GUILayout.Label("Sun: " + sunStatus, statusStyle);
             string moonStatus = sunMoon != null ? sunMoon.MoonStatus : "Moon component not found";
             GUILayout.Label("Moon: " + moonStatus, statusStyle);
+
+            GUILayout.Space(18f);
+            GUILayout.Label("Globe surface", headingStyle);
+            GUILayout.Label(
+                "Blue Moon is the clear glass Earth. Blue Marble lays a NASA daylight map over that same glass, so the far side shows real land and ocean color for the season you pick.",
+                bodyStyle);
+            GUILayout.Space(10f);
+            DrawCheckbox(
+                "Blue Moon",
+                GlassGlobeSettingsState.GlobeSurface == GlobeSurfaceMode.BlueMoon,
+                delegate { SelectGlobeSurface(GlobeSurfaceMode.BlueMoon); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Blue Marble",
+                GlassGlobeSettingsState.GlobeSurface == GlobeSurfaceMode.BlueMarble,
+                delegate { SelectGlobeSurface(GlobeSurfaceMode.BlueMarble); });
+
+            // Season and transparency belong to Blue Marble, so they stay
+            // hidden while the glass globe is selected.
+            if (GlassGlobeSettingsState.GlobeSurface == GlobeSurfaceMode.BlueMarble)
+            {
+                GUILayout.Space(12f);
+                GUILayout.Label("Season", headingStyle);
+                GUILayout.Space(6f);
+                DrawSeasonCheckbox("Spring", BlueMarbleSeason.Spring);
+                GUILayout.Space(6f);
+                DrawSeasonCheckbox("Summer", BlueMarbleSeason.Summer);
+                GUILayout.Space(6f);
+                DrawSeasonCheckbox("Fall", BlueMarbleSeason.Fall);
+                GUILayout.Space(6f);
+                DrawSeasonCheckbox("Winter", BlueMarbleSeason.Winter);
+                DrawOpacityRow(
+                    "Blue Marble transparency",
+                    GlassGlobeSettingsState.BlueMarbleOpacity,
+                    delegate (float value) { SetBlueMarbleOpacity(value); },
+                    268f);
+            }
+
+            GUILayout.Space(12f);
+            string surfaceStatus = blueMarble != null
+                ? blueMarble.Status
+                : "Globe surface component not found";
+            GUILayout.Label("Surface: " + surfaceStatus, statusStyle);
+            GUILayout.Space(8f);
+            GUILayout.Label(
+                "Blue Marble imagery: NASA Earth Observatory Blue Marble Next Generation, public domain.",
+                bodyStyle);
+        }
+
+        private void DrawSeasonCheckbox(string label, BlueMarbleSeason season)
+        {
+            DrawCheckbox(
+                label,
+                GlassGlobeSettingsState.BlueMarbleSeasonChoice == season,
+                delegate { SelectBlueMarbleSeason(season); });
         }
 
         private void DrawDisplayPage()
@@ -324,14 +379,14 @@ namespace GlassGlobe
                 });
         }
 
-        private void DrawOpacityRow(string label, float value, Action<float> setter)
+        private void DrawOpacityRow(string label, float value, Action<float> setter, float labelWidth = 220f)
         {
             GUILayout.Space(6f);
             GUILayout.BeginHorizontal();
             GUILayout.Label(
                 string.Format("{0}: {1:0}%", label, value * 100f),
                 bodyStyle,
-                GUILayout.Width(220f));
+                GUILayout.Width(labelWidth));
             float capturedValue = value;
             DrawButton("-", delegate { setter(capturedValue - 0.1f); }, 38f);
             GUILayout.Space(6f);

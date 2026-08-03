@@ -27,6 +27,7 @@ namespace GlassGlobe
         public MilkyWayBackground milkyWay;
         public SunMoonBackground sunMoon;
         public EarthStyleController earthStyle;
+        public BlueMarbleSurface blueMarble;
         public WeatherOverlay weather;
         public GlobeGridRenderer gridRenderer;
         public SatelliteOverlay satelliteOverlay;
@@ -146,6 +147,8 @@ namespace GlassGlobe
         private bool appliedMoonSetting;
         private EarthArtOverlay earthArt;
         private bool earthArtSettingsDirty = true;
+        private bool blueMarbleSettingsDirty = true;
+        private bool surfaceSelectionUpdating;
         private bool nightLightsSettingApplied;
         private bool appliedNightLightsSetting;
         private bool rimGlowSettingApplied;
@@ -411,6 +414,62 @@ namespace GlassGlobe
             ApplySunMoonSettings();
         }
 
+        /// <summary>
+        /// Blue Moon and Blue Marble are two values of one enum, so choosing
+        /// either always clears the other and the pair can never be both or
+        /// neither. The guard stops the apply pass this kicks off from
+        /// re-entering the checkbox callbacks it refreshes.
+        /// </summary>
+        private void SelectGlobeSurface(GlobeSurfaceMode mode)
+        {
+            if (surfaceSelectionUpdating)
+            {
+                return;
+            }
+
+            surfaceSelectionUpdating = true;
+            try
+            {
+                GlassGlobeSettingsState.SetGlobeSurface(mode);
+                MarkBlueMarbleDirty();
+            }
+            finally
+            {
+                surfaceSelectionUpdating = false;
+            }
+        }
+
+        private void SelectBlueMarbleSeason(BlueMarbleSeason season)
+        {
+            if (surfaceSelectionUpdating)
+            {
+                return;
+            }
+
+            surfaceSelectionUpdating = true;
+            try
+            {
+                GlassGlobeSettingsState.SetBlueMarbleSeason(season);
+                MarkBlueMarbleDirty();
+            }
+            finally
+            {
+                surfaceSelectionUpdating = false;
+            }
+        }
+
+        private void SetBlueMarbleOpacity(float value)
+        {
+            GlassGlobeSettingsState.SetBlueMarbleOpacity(value);
+            MarkBlueMarbleDirty();
+        }
+
+        private void MarkBlueMarbleDirty()
+        {
+            blueMarbleSettingsDirty = true;
+            ApplyBlueMarbleSettings();
+        }
+
         private void SetWaterArtEnabled(bool value)
         {
             GlassGlobeSettingsState.SetWaterArtEnabled(value);
@@ -520,12 +579,14 @@ namespace GlassGlobe
             ResolveReferences();
             displaySettingsDirty = true;
             earthArtSettingsDirty = true;
+            blueMarbleSettingsDirty = true;
             ApplyCameraSetting();
             ApplyCountryLabelSetting();
             ApplyDisplaySettings();
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
             ApplyEarthStyleSettings();
+            ApplyBlueMarbleSettings();
             ApplyEarthArtSettings();
             ApplyWeatherSettings();
             ApplyLiveDataSettings();
@@ -540,6 +601,7 @@ namespace GlassGlobe
             ApplyMilkyWaySetting();
             ApplySunMoonSettings();
             ApplyEarthStyleSettings();
+            ApplyBlueMarbleSettings();
             ApplyEarthArtSettings();
             ApplyWeatherSettings();
             ApplyLiveDataSettings();
@@ -730,6 +792,22 @@ namespace GlassGlobe
             earthArt.SetArtCloudsVisible(categoryEnabled && GlassGlobeSettingsState.ArtCloudsEnabled);
             earthArt.ApplyOpacities();
             earthArtSettingsDirty = false;
+        }
+
+        private void ApplyBlueMarbleSettings()
+        {
+            if (blueMarble == null || !blueMarbleSettingsDirty)
+            {
+                return;
+            }
+
+            // Only clear the flag once the globe material actually took the
+            // values, so a startup apply that lands before the globe finishes
+            // rebuilding is retried on the next pass.
+            if (blueMarble.ApplySettings())
+            {
+                blueMarbleSettingsDirty = false;
+            }
         }
 
         private void ApplyEarthStyleSettings()
@@ -964,6 +1042,15 @@ namespace GlassGlobe
                 if (earthStyle == null)
                 {
                     earthStyle = EarthStyleController.EnsureInstance(FindFirstObjectByType<GlobeRenderer>());
+                }
+            }
+
+            if (blueMarble == null)
+            {
+                blueMarble = FindFirstObjectByType<BlueMarbleSurface>();
+                if (blueMarble == null)
+                {
+                    blueMarble = BlueMarbleSurface.EnsureInstance(FindFirstObjectByType<GlobeRenderer>());
                 }
             }
 

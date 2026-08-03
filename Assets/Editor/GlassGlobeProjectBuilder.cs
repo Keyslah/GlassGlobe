@@ -51,6 +51,13 @@ public static class GlassGlobeProjectBuilder
         EarthStyleController earthStyle = globeObject.AddComponent<EarthStyleController>();
         earthStyle.globe = globe;
 
+        BlueMarbleSurface blueMarble = globeObject.AddComponent<BlueMarbleSurface>();
+        blueMarble.globe = globe;
+        blueMarble.springTexture = LoadBlueMarbleTexture("Spring");
+        blueMarble.summerTexture = LoadBlueMarbleTexture("Summer");
+        blueMarble.fallTexture = LoadBlueMarbleTexture("Fall");
+        blueMarble.winterTexture = LoadBlueMarbleTexture("Winter");
+
         GameObject gridRoot = new GameObject("Low Poly Earth Grid");
         gridRoot.transform.SetParent(root.transform, false);
         GlobeGridRenderer gridRenderer = gridRoot.AddComponent<GlobeGridRenderer>();
@@ -370,6 +377,77 @@ public static class GlassGlobeProjectBuilder
         }
 
         Debug.Log("GlassGlobeProjectBuilder: BuildPreviewScene completed successfully. Scene saved to " + ScenePath);
+    }
+
+    /// <summary>
+    /// Loads one NASA Blue Marble seasonal map, first making sure it is
+    /// imported the way the globe surface needs it: 4096x2048 with mipmaps,
+    /// no CPU copy, streaming on, longitude wrapping, and ASTC on Android.
+    /// Reimport only happens when something actually differs, so repeated
+    /// scene builds stay fast.
+    /// </summary>
+    private static Texture2D LoadBlueMarbleTexture(string season)
+    {
+        string path = GlassGlobeRoot + "/Textures/GlassGlobeBlueMarble" + season + ".jpg";
+        TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (importer == null)
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: Blue Marble " + season + " texture not found at " + path + ".");
+            return null;
+        }
+
+        TextureImporterPlatformSettings android = importer.GetPlatformTextureSettings("Android");
+        bool androidNeedsUpdate =
+            !android.overridden ||
+            android.maxTextureSize != 4096 ||
+            android.format != TextureImporterFormat.ASTC_6x6;
+
+        bool needsUpdate =
+            androidNeedsUpdate ||
+            !importer.mipmapEnabled ||
+            importer.isReadable ||
+            !importer.streamingMipmaps ||
+            importer.maxTextureSize != 4096 ||
+            importer.npotScale != TextureImporterNPOTScale.None ||
+            importer.wrapModeU != TextureWrapMode.Repeat ||
+            importer.wrapModeV != TextureWrapMode.Clamp ||
+            importer.anisoLevel != 4 ||
+            !importer.sRGBTexture;
+
+        if (needsUpdate)
+        {
+            importer.textureType = TextureImporterType.Default;
+            importer.sRGBTexture = true;
+            importer.mipmapEnabled = true;
+            importer.isReadable = false;
+            importer.streamingMipmaps = true;
+            importer.maxTextureSize = 4096;
+            importer.npotScale = TextureImporterNPOTScale.None;
+            // Equirectangular: longitude wraps at the antimeridian, latitude
+            // must clamp so the poles do not bleed across.
+            importer.wrapModeU = TextureWrapMode.Repeat;
+            importer.wrapModeV = TextureWrapMode.Clamp;
+            importer.anisoLevel = 4;
+            importer.textureCompression = TextureImporterCompression.Compressed;
+
+            android.overridden = true;
+            android.maxTextureSize = 4096;
+            android.format = TextureImporterFormat.ASTC_6x6;
+            android.textureCompression = TextureImporterCompression.Compressed;
+            android.compressionQuality = (int)TextureCompressionQuality.Normal;
+            importer.SetPlatformTextureSettings(android);
+
+            importer.SaveAndReimport();
+            Debug.Log("GlassGlobeProjectBuilder: reimported the Blue Marble " + season + " map at 4096x2048 with Android ASTC 6x6.");
+        }
+
+        Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        if (texture == null)
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: could not load the Blue Marble " + season + " texture at " + path + ".");
+        }
+
+        return texture;
     }
 
     private static GameObject CreateSphereMarker(string name, float diameter, Material material, Transform parent)

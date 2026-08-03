@@ -122,6 +122,16 @@ public static class GlassGlobeBuildValidator
             LogRequired(ref errors, earthquakes.markerMaterial != null, "GlassGlobeBuildValidator: EarthquakeOverlay marker material is not assigned, the sprite shader would be stripped.");
         }
 
+        BlueMarbleSurface blueMarble = FindInScene<BlueMarbleSurface>(scene);
+        LogRequired(ref errors, blueMarble != null, "GlassGlobeBuildValidator: missing BlueMarbleSurface on the globe.");
+        if (blueMarble != null)
+        {
+            LogRequired(ref errors, blueMarble.springTexture != null, "GlassGlobeBuildValidator: Blue Marble spring texture is not assigned, the season would be missing from the build.");
+            LogRequired(ref errors, blueMarble.summerTexture != null, "GlassGlobeBuildValidator: Blue Marble summer texture is not assigned, the season would be missing from the build.");
+            LogRequired(ref errors, blueMarble.fallTexture != null, "GlassGlobeBuildValidator: Blue Marble fall texture is not assigned, the season would be missing from the build.");
+            LogRequired(ref errors, blueMarble.winterTexture != null, "GlassGlobeBuildValidator: Blue Marble winter texture is not assigned, the season would be missing from the build.");
+        }
+
         SunMoonBackground sunMoon = FindInScene<SunMoonBackground>(scene);
         LogRequired(ref errors, sunMoon != null, "GlassGlobeBuildValidator: missing SunMoonBackground.");
         if (sunMoon != null)
