@@ -87,36 +87,19 @@ namespace GlassGlobe
             }
         }
 
-        private static readonly ViewpointChoice[] CityChoices =
-        {
-            new ViewpointChoice("Beijing, China", "City", 39.9042f, 116.4074f),
-            new ViewpointChoice("Shanghai, China", "City", 31.2304f, 121.4737f),
-            new ViewpointChoice("Tokyo, Japan", "City", 35.6762f, 139.6503f),
-            new ViewpointChoice("Singapore", "City", 1.3521f, 103.8198f),
-            new ViewpointChoice("Mumbai, India", "City", 19.0760f, 72.8777f),
-            new ViewpointChoice("Delhi, India", "City", 28.6139f, 77.2090f),
-            new ViewpointChoice("Dubai, United Arab Emirates", "City", 25.2048f, 55.2708f),
-            new ViewpointChoice("Sydney, Australia", "City", -33.8688f, 151.2093f),
-            new ViewpointChoice("Cairo, Egypt", "City", 30.0444f, 31.2357f),
-            new ViewpointChoice("Nairobi, Kenya", "City", -1.2921f, 36.8219f),
-            new ViewpointChoice("Johannesburg, South Africa", "City", -26.2041f, 28.0473f),
-            new ViewpointChoice("London, United Kingdom", "City", 51.5074f, -0.1278f),
-            new ViewpointChoice("Paris, France", "City", 48.8566f, 2.3522f),
-            new ViewpointChoice("Moscow, Russia", "City", 55.7558f, 37.6173f),
-            new ViewpointChoice("Istanbul, Turkey", "City", 41.0082f, 28.9784f),
-            new ViewpointChoice("New York City, United States", "City", 40.7128f, -74.0060f),
-            new ViewpointChoice("Chicago, United States", "City", 41.8781f, -87.6298f),
-            new ViewpointChoice("San Francisco, United States", "City", 37.7749f, -122.4194f),
-            new ViewpointChoice("Los Angeles, United States", "City", 34.0522f, -118.2437f),
-            new ViewpointChoice("Mexico City, Mexico", "City", 19.4326f, -99.1332f),
-            new ViewpointChoice("Toronto, Canada", "City", 43.6532f, -79.3832f),
-            new ViewpointChoice("Vancouver, Canada", "City", 49.2827f, -123.1207f),
-            new ViewpointChoice("Rio de Janeiro, Brazil", "City", -22.9068f, -43.1729f),
-            new ViewpointChoice("Sao Paulo, Brazil", "City", -23.5505f, -46.6333f)
-        };
+        /// <summary>
+        /// How many viewpoint suggestions the page offers at once.
+        /// </summary>
+        private const int MaxViewpointResults = 8;
+
+        /// <summary>
+        /// How many country entries may take up room before the city matches.
+        /// </summary>
+        private const int MaxCountryResults = 3;
 
         private readonly List<ViewpointChoice> viewpointChoices = new List<ViewpointChoice>();
         private readonly List<ViewpointChoice> filteredChoices = new List<ViewpointChoice>();
+        private readonly List<CityDataLoader.City> cityResults = new List<CityDataLoader.City>();
         private readonly List<TouchTarget> touchTargets = new List<TouchTarget>();
 
         private SettingsPage currentPage = SettingsPage.Closed;
@@ -125,6 +108,7 @@ namespace GlassGlobe
         private GUIStyle bodyStyle;
         private GUIStyle statusStyle;
         private GUIStyle buttonStyle;
+        private GUIStyle seasonButtonStyle;
         private GUIStyle entryButtonStyle;
         private Rect activeAreaRect;
         private float activeUiScale = 1f;
@@ -149,6 +133,19 @@ namespace GlassGlobe
         private bool earthArtSettingsDirty = true;
         private bool blueMarbleSettingsDirty = true;
         private bool surfaceSelectionUpdating;
+        private bool resetConfirmPending;
+
+        private Rect seasonCycleButtonRect;
+
+        private enum SaveLoadMode
+        {
+            None,
+            Naming,
+            Choosing
+        }
+
+        private SaveLoadMode saveLoadMode = SaveLoadMode.None;
+        private string saveSetName = "My settings";
         private bool nightLightsSettingApplied;
         private bool appliedNightLightsSetting;
         private bool rimGlowSettingApplied;
@@ -167,6 +164,8 @@ namespace GlassGlobe
         private string orientStatusMessage = string.Empty;
         private bool viewpointSettingDirty = true;
         private bool choicesBuiltFromCountries;
+        private string filteredChoicesQuery;
+        private bool filteredChoicesValid;
         private string viewpointSearch = string.Empty;
         private string latitudeText = "0.0000";
         private string longitudeText = "0.0000";
@@ -283,9 +282,12 @@ namespace GlassGlobe
             if (currentPage == SettingsPage.Closed)
             {
                 DrawZoomIndicator();
+                DrawSeasonCycleButton();
+
                 if (!Application.isMobilePlatform &&
                     Event.current.type == EventType.MouseUp &&
                     Event.current.button == 0 &&
+                    !seasonCycleButtonRect.Contains(Event.current.mousePosition) &&
                     (hud == null || !hud.IsInteractiveScreenPoint(Event.current.mousePosition)))
                 {
                     OpenSettings();
@@ -298,6 +300,46 @@ namespace GlassGlobe
 
             DrawSettingsPage();
             GUI.matrix = previousMatrix;
+        }
+
+        /// <summary>
+        /// Faint season button along the bottom of the viewport. It only means
+        /// anything while Blue Marble is showing, so it hides with it. Drawn in
+        /// the same UI space the touch layer reports points in, so the stored
+        /// rect can be hit-tested directly against a tap.
+        /// </summary>
+        private void DrawSeasonCycleButton()
+        {
+            if (!GlassGlobeSettingsState.EffectiveBlueMarbleEnabled ||
+                !GlassGlobeSettingsState.SeasonButtonVisible)
+            {
+                seasonCycleButtonRect = new Rect();
+                return;
+            }
+
+            float width = Mathf.Min(460f, GlassGlobePortraitUi.Width - 32f);
+            float height = GlassGlobeUi.GetInteractiveControlHeight(112f);
+            // Flush to the bottom edge on purpose. With a margin there was a
+            // thin strip below the button that still counted as the viewport,
+            // so grabbing for the button and missing low opened settings.
+            seasonCycleButtonRect = new Rect(
+                (GlassGlobePortraitUi.Width - width) * 0.5f,
+                GlassGlobePortraitUi.Height - height,
+                width,
+                height);
+
+            Color previousColor = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.4f);
+            bool clicked = GUI.Button(
+                seasonCycleButtonRect,
+                GlassGlobeSettingsState.BlueMarbleSeasonChoice.ToString(),
+                seasonButtonStyle);
+            GUI.color = previousColor;
+
+            if (clicked && !Application.isMobilePlatform)
+            {
+                CycleBlueMarbleSeason();
+            }
         }
 
         private void OpenSettings()
@@ -322,6 +364,9 @@ namespace GlassGlobe
         private void BackToViewpoint()
         {
             currentPage = SettingsPage.Closed;
+            // Leaving the page answers "no" to a pending reset prompt, the same
+            // as navigating between pages does.
+            resetConfirmPending = false;
             if (hud != null)
             {
                 hud.showHud = hudWasVisible;
@@ -339,6 +384,127 @@ namespace GlassGlobe
         {
             currentPage = page;
             settingsScrollPosition = Vector2.zero;
+            // Navigating away is an answer of "no" to a pending reset prompt or
+            // a half-finished save.
+            resetConfirmPending = false;
+            saveLoadMode = SaveLoadMode.None;
+        }
+
+        /// <summary>
+        /// Wipes every saved setting and pushes the defaults back onto the
+        /// scene. Two taps are required because a stray tap here would undo all
+        /// of the user's choices at once.
+        /// </summary>
+        private void ResetAllSettingsToDefaults()
+        {
+            if (!resetConfirmPending)
+            {
+                resetConfirmPending = true;
+                statusMessage = string.Empty;
+                return;
+            }
+
+            resetConfirmPending = false;
+            GlassGlobeSettingsState.ResetToDefaults();
+
+            // Clearing the keys already drops the viewpoint override, but say it
+            // outright: a reset has to put the user back over their real GPS
+            // position, not leave them parked above whatever city they picked.
+            GlassGlobeSettingsState.UseRealLocation();
+
+            latitudeText = "0.0000";
+            longitudeText = "0.0000";
+            customViewpointName = string.Empty;
+            viewpointSearch = string.Empty;
+            orientStatusMessage = string.Empty;
+
+            PushEverySettingToScene();
+            statusMessage = "All settings restored to defaults. Viewing from your current location.";
+        }
+
+        private void BeginNamingSave()
+        {
+            saveLoadMode = SaveLoadMode.Naming;
+            statusMessage = string.Empty;
+            if (string.IsNullOrEmpty(saveSetName))
+            {
+                saveSetName = "My settings";
+            }
+        }
+
+        private void BeginChoosingLoad()
+        {
+            saveLoadMode = SaveLoadMode.Choosing;
+            statusMessage = string.Empty;
+        }
+
+        private void CancelSaveLoad()
+        {
+            saveLoadMode = SaveLoadMode.None;
+            statusMessage = string.Empty;
+        }
+
+        private void ConfirmSaveWithName()
+        {
+            string name = (saveSetName ?? string.Empty).Trim();
+            if (name.Length == 0)
+            {
+                statusMessage = "Give the set a name first.";
+                return;
+            }
+
+            if (!GlassGlobeSettingsState.SaveSettingsAs(name))
+            {
+                statusMessage = "No room left; overwrite one of the existing names.";
+                return;
+            }
+
+            saveLoadMode = SaveLoadMode.None;
+            statusMessage = "Saved as \"" + name + "\".";
+        }
+
+        private void LoadSavedSet(int slot)
+        {
+            string name = GlassGlobeSettingsState.GetSavedSetName(slot);
+            if (!GlassGlobeSettingsState.LoadSavedSet(slot))
+            {
+                statusMessage = "That set could not be loaded.";
+                return;
+            }
+
+            saveLoadMode = SaveLoadMode.None;
+            viewpointSearch = string.Empty;
+            PushEverySettingToScene();
+            SeedCoordinateFields();
+            statusMessage = "Loaded \"" + name + "\".";
+        }
+
+        /// <summary>
+        /// Re-pushes the whole settings block onto the scene. Every Apply pass
+        /// caches the value it last applied, so a wholesale change of the
+        /// underlying state has to clear those caches or most of it silently
+        /// would not take.
+        /// </summary>
+        private void PushEverySettingToScene()
+        {
+            cameraSettingApplied = false;
+            labelsSettingApplied = false;
+            milkyWaySettingApplied = false;
+            sunSettingApplied = false;
+            moonSettingApplied = false;
+            nightLightsSettingApplied = false;
+            rimGlowSettingApplied = false;
+            weatherCloudsSettingApplied = false;
+            weatherRadarSettingApplied = false;
+            satellitesSettingApplied = false;
+            earthquakesSettingApplied = false;
+            displaySettingsDirty = true;
+            earthArtSettingsDirty = true;
+            blueMarbleSettingsDirty = true;
+            viewpointSettingDirty = true;
+            filteredChoicesValid = false;
+
+            ApplySavedSettings();
         }
 
         private void SetCameraFeedEnabled(bool value)
@@ -514,6 +680,73 @@ namespace GlassGlobe
             GlassGlobeSettingsState.SetEarthquakesEnabled(value);
             earthquakesSettingApplied = false;
             ApplyLiveDataSettings();
+        }
+
+        /// <summary>
+        /// Moves the viewpoint to whatever the reticle is currently on.
+        /// </summary>
+        private void JumpToCenterPoint()
+        {
+            if (farSideRaycaster == null)
+            {
+                statusMessage = "Center point is not available.";
+                return;
+            }
+
+            GeoCoordinate coordinate;
+            Vector3 point;
+            if (!farSideRaycaster.TryGetFarSideHit(out point, out coordinate))
+            {
+                statusMessage = "Point the center dot at the Earth first.";
+                return;
+            }
+
+            string label = DescribeCoordinate(coordinate);
+            GlassGlobeSettingsState.SetViewpoint(coordinate, label);
+            latitudeText = coordinate.Latitude.ToString("0.0000", CultureInfo.InvariantCulture);
+            longitudeText = coordinate.Longitude.ToString("0.0000", CultureInfo.InvariantCulture);
+            customViewpointName = label;
+            statusMessage = "Viewpoint changed to " + label + ".";
+            ApplyViewpointSetting(true);
+        }
+
+        /// <summary>
+        /// Advances the Blue Marble season, wrapping round. Driven by the
+        /// viewport button so seasons can be flipped without opening settings.
+        /// </summary>
+        private void CycleBlueMarbleSeason()
+        {
+            BlueMarbleSeason next =
+                (BlueMarbleSeason)(((int)GlassGlobeSettingsState.BlueMarbleSeasonChoice + 1) % 4);
+            SelectBlueMarbleSeason(next);
+        }
+
+        /// <summary>
+        /// Best available name for a point: the country under it when there is
+        /// one, otherwise the coordinates themselves.
+        /// </summary>
+        private string DescribeCoordinate(GeoCoordinate coordinate)
+        {
+            string formatted = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:0.00}, {1:0.00}",
+                coordinate.Latitude,
+                coordinate.Longitude);
+
+            if (borderRenderer == null)
+            {
+                return formatted;
+            }
+
+            string region = borderRenderer.GetRegionForCoordinate(coordinate);
+            if (string.IsNullOrEmpty(region) ||
+                region == "Unknown" ||
+                region == "Open ocean")
+            {
+                return formatted;
+            }
+
+            return region.StartsWith("Nearest: ") ? region.Substring(9) : region;
         }
 
         private void SelectViewpoint(ViewpointChoice choice)
@@ -899,11 +1132,8 @@ namespace GlassGlobe
 
         private void BuildViewpointChoices()
         {
-            if (viewpointChoices.Count == 0)
-            {
-                viewpointChoices.AddRange(CityChoices);
-            }
-
+            // Cities come from the bundled gazetteer; this list is countries
+            // only, so you can also view from a country as a whole.
             if (choicesBuiltFromCountries ||
                 borderRenderer == null ||
                 borderRenderer.Outlines == null ||
@@ -940,37 +1170,66 @@ namespace GlassGlobe
                 return string.Compare(left.Name, right.Name, StringComparison.OrdinalIgnoreCase);
             });
             choicesBuiltFromCountries = true;
+            // New entries invalidate whatever the last search produced.
+            filteredChoicesValid = false;
         }
 
+        /// <summary>
+        /// Rebuilds the suggestion list for the current search text. The result
+        /// is cached against the query because this runs from OnGUI and the
+        /// gazetteer holds tens of thousands of cities - rescanning it every
+        /// repaint would be pure waste.
+        /// </summary>
         private void BuildFilteredChoices()
         {
-            filteredChoices.Clear();
             string query = (viewpointSearch ?? string.Empty).Trim();
-
-            if (query.Length == 0)
+            if (filteredChoicesValid && string.Equals(filteredChoicesQuery, query, StringComparison.Ordinal))
             {
-                for (int index = 0; index < viewpointChoices.Count && filteredChoices.Count < 6; index++)
-                {
-                    if (viewpointChoices[index].Kind == "City")
-                    {
-                        filteredChoices.Add(viewpointChoices[index]);
-                    }
-                }
-
                 return;
             }
 
-            AddMatchingChoices(query, true);
-            if (filteredChoices.Count < 12)
+            filteredChoicesQuery = query;
+            filteredChoicesValid = true;
+            filteredChoices.Clear();
+
+            // A typed country name is offered as a viewpoint in its own right
+            // before the cities inside it: "view from Japan" and "view from a
+            // city in Japan" are different requests.
+            if (query.Length > 0)
             {
-                AddMatchingChoices(query, false);
+                AddMatchingCountries(query, true);
+                AddMatchingCountries(query, false);
+            }
+
+            CityDataLoader.Search(query, cityResults, MaxViewpointResults);
+            for (int index = 0; index < cityResults.Count && filteredChoices.Count < MaxViewpointResults; index++)
+            {
+                CityDataLoader.City city = cityResults[index];
+                string label = string.IsNullOrEmpty(city.Country)
+                    ? city.Name
+                    : city.Name + ", " + city.Country;
+                filteredChoices.Add(new ViewpointChoice(label, "City", city.Coordinate));
             }
         }
 
-        private void AddMatchingChoices(string query, bool startsWith)
+        private void AddMatchingCountries(string query, bool startsWith)
         {
-            for (int index = 0; index < viewpointChoices.Count && filteredChoices.Count < 12; index++)
+            int countryCount = 0;
+            for (int index = 0; index < filteredChoices.Count; index++)
             {
+                if (filteredChoices[index].Kind == "Country")
+                {
+                    countryCount++;
+                }
+            }
+
+            for (int index = 0; index < viewpointChoices.Count; index++)
+            {
+                if (countryCount >= MaxCountryResults || filteredChoices.Count >= MaxViewpointResults)
+                {
+                    return;
+                }
+
                 ViewpointChoice choice = viewpointChoices[index];
                 bool matches = startsWith
                     ? choice.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase)
@@ -981,6 +1240,7 @@ namespace GlassGlobe
                 }
 
                 filteredChoices.Add(choice);
+                countryCount++;
             }
         }
 

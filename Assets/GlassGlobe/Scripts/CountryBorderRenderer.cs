@@ -48,6 +48,7 @@ namespace GlassGlobe
             public Vector3 CapCenter;
             public float CapCosRadius;
             public Vector3 LabelUnit;
+            public float CapRadians;
         }
 
         private sealed class GeneratedLine
@@ -56,6 +57,12 @@ namespace GlassGlobe
             public bool IsCountry;
             public float BaseWidth;
         }
+
+        /// <summary>
+        /// cos(6 deg). Past roughly 650 km from the nearest coastline the
+        /// readout reports open ocean instead of naming a country.
+        /// </summary>
+        private const float NearestRegionMinDot = 0.99452f;
 
         private OutlineCache[] outlineCaches;
         private List<GeoOutline> cachedOutlinesSource;
@@ -151,7 +158,10 @@ namespace GlassGlobe
                 lineRenderer.positionCount = positions.Count;
                 lineRenderer.SetPositions(positions.ToArray());
                 float thickness = outline.isCountry ? countryOutlineThickness : 1f;
-                lineRenderer.widthMultiplier = Mathf.Max(0.005f, outline.lineWidth * thickness);
+                lineRenderer.widthMultiplier = ThicknessToWidth(outline.lineWidth, thickness);
+                // Thickness 0 means the country lines are meant to be gone, not
+                // hairline thin.
+                lineRenderer.enabled = thickness > 0f;
                 lineRenderer.numCornerVertices = 3;
                 lineRenderer.numCapVertices = outline.closed ? 0 : 3;
                 lineRenderer.loop = false;
@@ -196,7 +206,7 @@ namespace GlassGlobe
 
         public void SetCountryOutlineThickness(float thickness)
         {
-            countryOutlineThickness = Mathf.Clamp(thickness, 0.25f, 3f);
+            countryOutlineThickness = Mathf.Clamp(thickness, 0f, 3f);
             if (!HasLineTracking())
             {
                 RebuildBorders();
@@ -208,9 +218,16 @@ namespace GlassGlobe
                 GeneratedLine entry = generatedLines[index];
                 if (entry.IsCountry)
                 {
-                    entry.Line.widthMultiplier = Mathf.Max(0.005f, entry.BaseWidth * countryOutlineThickness);
+                    entry.Line.widthMultiplier =
+                        ThicknessToWidth(entry.BaseWidth, countryOutlineThickness);
+                    entry.Line.enabled = countryOutlineThickness > 0f;
                 }
             }
+        }
+
+        private static float ThicknessToWidth(float baseWidth, float thickness)
+        {
+            return thickness <= 0f ? 0f : Mathf.Max(0.005f, baseWidth * thickness);
         }
 
         public string GetRegionForCoordinate(GeoCoordinate coordinate)
@@ -245,27 +262,60 @@ namespace GlassGlobe
                     continue;
                 }
 
+                float capDot = Vector3.Dot(pointUnit, cache.CapCenter);
                 if (outline.isCountry &&
-                    Vector3.Dot(pointUnit, cache.CapCenter) >= cache.CapCosRadius &&
+                    capDot >= cache.CapCosRadius &&
                     ContainsOnSphere(pointUnit, cache.UnitVectors))
                 {
                     result = outline.name;
                     break;
                 }
 
-                float labelDot = Vector3.Dot(pointUnit, cache.LabelUnit);
-                if (labelDot > nearestDot)
+                // Cheap reject before touching this ring's vertices: nothing in
+                // it can be nearer than its bounding cap. Without this the
+                // fallback walks all ~10k vertices in the dataset every frame
+                // the reticle is off-shore.
+                float capGapRadians =
+                    Mathf.Acos(Mathf.Clamp(capDot, -1f, 1f)) - cache.CapRadians;
+                if (capGapRadians > 0f && Mathf.Cos(capGapRadians) <= nearestDot)
                 {
-                    nearestDot = labelDot;
-                    nearestOutline = outline;
+                    continue;
+                }
+
+                // Rank the fallback by how close the ring itself comes, not by
+                // the label anchor. A label sits at the country's centre, so
+                // island groups lose badly to whatever large country happens to
+                // be centred nearby: standing on Hawaii, the US label is in
+                // Kansas 49 deg away while Fiji's is 45.8 deg away, and the
+                // readout said Fiji. The rings themselves put Hawaii 0.2 deg
+                // from a United States ring.
+                for (int vertex = 0; vertex < cache.UnitVectors.Length; vertex++)
+                {
+                    float dot = Vector3.Dot(pointUnit, cache.UnitVectors[vertex]);
+                    if (dot > nearestDot)
+                    {
+                        nearestDot = dot;
+                        nearestOutline = outline;
+                    }
                 }
             }
 
             if (result == null)
             {
-                result = nearestOutline == null
-                    ? "Unknown"
-                    : string.Format("Nearest: {0}", nearestOutline.name);
+                if (nearestOutline == null)
+                {
+                    result = "Unknown";
+                }
+                else if (nearestDot < NearestRegionMinDot)
+                {
+                    // Far from every coastline: naming a country here would be
+                    // a guess dressed up as a fact.
+                    result = "Open ocean";
+                }
+                else
+                {
+                    result = string.Format("Nearest: {0}", nearestOutline.name);
+                }
             }
 
             regionCacheFrame = Time.frameCount;
@@ -411,6 +461,7 @@ namespace GlassGlobe
                 }
 
                 cache.LabelUnit = EarthMath.GeoToUnitVector(outline.labelCoordinate);
+                cache.CapRadians = Mathf.Acos(Mathf.Clamp(cache.CapCosRadius, -1f, 1f));
                 outlineCaches[index] = cache;
             }
 

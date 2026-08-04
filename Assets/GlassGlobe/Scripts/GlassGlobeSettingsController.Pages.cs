@@ -109,6 +109,19 @@ namespace GlassGlobe
             }
 
             GUILayout.Space(18f);
+            DrawSaveLoadControls();
+            GUILayout.Space(8f);
+            DrawButton(
+                resetConfirmPending ? "Tap again to confirm reset" : "Reset to Defaults",
+                ResetAllSettingsToDefaults,
+                52f);
+            if (!string.IsNullOrEmpty(statusMessage))
+            {
+                GUILayout.Space(6f);
+                GUILayout.Label(statusMessage, statusStyle);
+            }
+
+            GUILayout.Space(18f);
             GUILayout.Label("Choose a settings category", bodyStyle);
             GUILayout.Space(10f);
             DrawSettingsCategoryRow(
@@ -166,60 +179,90 @@ namespace GlassGlobe
                 delegate { ShowPage(SettingsPage.Privacy); });
         }
 
+        /// <summary>
+        /// Save/Load with named sets. Naming and picking take over the same
+        /// strip of the page rather than opening a separate screen, so the flow
+        /// stays inside the settings home.
+        /// </summary>
+        private void DrawSaveLoadControls()
+        {
+            if (saveLoadMode == SaveLoadMode.Naming)
+            {
+                GUILayout.Label("Name this settings set", headingStyle);
+                saveSetName = GUILayout.TextField(
+                    saveSetName ?? string.Empty,
+                    GUILayout.Height(GlassGlobeUi.GetInteractiveControlHeight(38f)));
+                GUILayout.Space(6f);
+                GUILayout.BeginHorizontal();
+                DrawButton("Save", ConfirmSaveWithName, 48f);
+                GUILayout.Space(8f);
+                DrawButton("Cancel", CancelSaveLoad, 48f);
+                GUILayout.EndHorizontal();
+                return;
+            }
+
+            if (saveLoadMode == SaveLoadMode.Choosing)
+            {
+                GUILayout.Label("Load which set?", headingStyle);
+                int count = GlassGlobeSettingsState.SavedSetCount;
+                for (int slot = 0; slot < count; slot++)
+                {
+                    int capturedSlot = slot;
+                    GUILayout.Space(4f);
+                    DrawButton(
+                        GlassGlobeSettingsState.GetSavedSetName(slot),
+                        delegate { LoadSavedSet(capturedSlot); },
+                        46f);
+                }
+
+                GUILayout.Space(6f);
+                DrawButton("Cancel", CancelSaveLoad, 48f);
+                return;
+            }
+
+            GUILayout.BeginHorizontal();
+            DrawButton("Save Settings", BeginNamingSave, 52f);
+            if (GlassGlobeSettingsState.HasSavedSettings)
+            {
+                GUILayout.Space(8f);
+                DrawButton("Load Settings", BeginChoosingLoad, 52f);
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawBackgroundPage()
         {
             DrawCategoryHeader("Background");
             GUILayout.Space(18f);
-            GUILayout.Label("Sky", headingStyle);
-            GUILayout.Label(
-                "Shows the Milky Way where it actually is right now for your viewpoint, seen through and around the Earth. Hidden while the camera feed covers the background.",
-                bodyStyle);
-            GUILayout.Space(10f);
-            DrawCheckbox(
-                "Milky Way Galaxy",
-                GlassGlobeSettingsState.MilkyWayEnabled,
-                delegate { SetMilkyWayEnabled(!GlassGlobeSettingsState.MilkyWayEnabled); });
-            GUILayout.Space(6f);
-            DrawCheckbox(
-                "Sun",
-                GlassGlobeSettingsState.SunEnabled,
-                delegate { SetSunEnabled(!GlassGlobeSettingsState.SunEnabled); });
-            GUILayout.Space(6f);
-            DrawCheckbox(
-                "Moon (with real phase)",
-                GlassGlobeSettingsState.MoonEnabled,
-                delegate { SetMoonEnabled(!GlassGlobeSettingsState.MoonEnabled); });
-            GUILayout.Space(12f);
-            string milkyWayStatus = milkyWay != null ? milkyWay.StatusText : "Milky Way component not found";
-            GUILayout.Label("Milky Way: " + milkyWayStatus, statusStyle);
-            string sunStatus = sunMoon != null ? sunMoon.SunStatus : "Sun component not found";
-            GUILayout.Label("Sun: " + sunStatus, statusStyle);
-            string moonStatus = sunMoon != null ? sunMoon.MoonStatus : "Moon component not found";
-            GUILayout.Label("Moon: " + moonStatus, statusStyle);
 
-            GUILayout.Space(18f);
-            GUILayout.Label("Globe surface", headingStyle);
-            GUILayout.Label(
-                "Blue Moon is the clear glass Earth. Blue Marble lays a NASA daylight map over that same glass, so the far side shows real land and ocean color for the season you pick.",
-                bodyStyle);
-            GUILayout.Space(10f);
-            DrawCheckbox(
-                "Blue Moon",
-                GlassGlobeSettingsState.GlobeSurface == GlobeSurfaceMode.BlueMoon,
-                delegate { SelectGlobeSurface(GlobeSurfaceMode.BlueMoon); });
-            GUILayout.Space(6f);
+            // Unchecking Blue Marble already gives the plain glass globe, so a
+            // second checkbox for it would only be a way to say the same thing.
             DrawCheckbox(
                 "Blue Marble",
                 GlassGlobeSettingsState.GlobeSurface == GlobeSurfaceMode.BlueMarble,
-                delegate { SelectGlobeSurface(GlobeSurfaceMode.BlueMarble); });
+                delegate
+                {
+                    SelectGlobeSurface(
+                        GlassGlobeSettingsState.GlobeSurface == GlobeSurfaceMode.BlueMarble
+                            ? GlobeSurfaceMode.BlueMoon
+                            : GlobeSurfaceMode.BlueMarble);
+                });
 
             // Season and transparency belong to Blue Marble, so they stay
-            // hidden while the glass globe is selected.
+            // hidden while the glass globe is showing.
             if (GlassGlobeSettingsState.GlobeSurface == GlobeSurfaceMode.BlueMarble)
             {
-                GUILayout.Space(12f);
-                GUILayout.Label("Season", headingStyle);
-                GUILayout.Space(6f);
+                GUILayout.Space(10f);
+                DrawCheckbox(
+                    "Hide season button",
+                    !GlassGlobeSettingsState.SeasonButtonVisible,
+                    delegate
+                    {
+                        GlassGlobeSettingsState.SetSeasonButtonVisible(
+                            !GlassGlobeSettingsState.SeasonButtonVisible);
+                    });
+                GUILayout.Space(10f);
                 DrawSeasonCheckbox("Spring", BlueMarbleSeason.Spring);
                 GUILayout.Space(6f);
                 DrawSeasonCheckbox("Summer", BlueMarbleSeason.Summer);
@@ -234,15 +277,21 @@ namespace GlassGlobe
                     268f);
             }
 
-            GUILayout.Space(12f);
-            string surfaceStatus = blueMarble != null
-                ? blueMarble.Status
-                : "Globe surface component not found";
-            GUILayout.Label("Surface: " + surfaceStatus, statusStyle);
-            GUILayout.Space(8f);
-            GUILayout.Label(
-                "Blue Marble imagery: NASA Earth Observatory Blue Marble Next Generation, public domain.",
-                bodyStyle);
+            GUILayout.Space(18f);
+            DrawCheckbox(
+                "Milky Way Galaxy",
+                GlassGlobeSettingsState.MilkyWayEnabled,
+                delegate { SetMilkyWayEnabled(!GlassGlobeSettingsState.MilkyWayEnabled); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Sun",
+                GlassGlobeSettingsState.SunEnabled,
+                delegate { SetSunEnabled(!GlassGlobeSettingsState.SunEnabled); });
+            GUILayout.Space(6f);
+            DrawCheckbox(
+                "Moon (with real phase)",
+                GlassGlobeSettingsState.MoonEnabled,
+                delegate { SetMoonEnabled(!GlassGlobeSettingsState.MoonEnabled); });
         }
 
         private void DrawSeasonCheckbox(string label, BlueMarbleSeason season)
@@ -270,12 +319,18 @@ namespace GlassGlobe
                 delegate { GlassGlobeSettingsState.SetShowSetNorthButton(!GlassGlobeSettingsState.ShowSetNorthButton); });
 
             GUILayout.Space(18f);
+            DrawCheckbox(
+                "Country lines",
+                GlassGlobeSettingsState.CountryLinesVisible,
+                delegate
+                {
+                    GlassGlobeSettingsState.SetCountryLinesVisible(
+                        !GlassGlobeSettingsState.CountryLinesVisible);
+                    RefreshDisplaySettings();
+                });
+            GUILayout.Space(8f);
             GUILayout.Label("Country outline color", headingStyle);
             DrawColorChoices(true);
-            DrawThicknessRow(
-                "Country line thickness",
-                GlassGlobeSettingsState.CountryOutlineThickness,
-                delegate (float value) { GlassGlobeSettingsState.SetCountryOutlineThickness(value); RefreshDisplaySettings(); });
             GUILayout.Space(18f);
             DrawCheckbox(
                 "Grid",
@@ -290,14 +345,15 @@ namespace GlassGlobe
                 delegate (float value) { GlassGlobeSettingsState.SetGridThickness(value); RefreshDisplaySettings(); });
         }
 
-        private void DrawThicknessRow(string label, float value, Action<float> setter)
+        private void DrawThicknessRow(string label, float value, Action<float> setter, float step = 0.25f)
         {
             GUILayout.Space(8f);
             GUILayout.BeginHorizontal();
             GUILayout.Label(label + ": " + Mathf.RoundToInt(value * 100f) + "%", bodyStyle, GUILayout.Width(260f));
-            DrawButton("-", delegate { setter(value - 0.25f); }, 46f);
+            float capturedValue = value;
+            DrawButton("-", delegate { setter(capturedValue - step); }, 46f);
             GUILayout.Space(6f);
-            DrawButton("+", delegate { setter(value + 0.25f); }, 46f);
+            DrawButton("+", delegate { setter(capturedValue + step); }, 46f);
             GUILayout.EndHorizontal();
         }
 
@@ -516,6 +572,9 @@ namespace GlassGlobe
                 GUILayout.Space(8f);
             }
 
+            DrawButton("Jump to current center point", JumpToCenterPoint, 46f);
+            GUILayout.Space(8f);
+
             DrawCheckbox(
                 "Show country names on Earth",
                 GlassGlobeSettingsState.CountryLabelsVisible,
@@ -523,13 +582,13 @@ namespace GlassGlobe
 
             GUILayout.Space(12f);
             GUILayout.Label("View from a city or country", headingStyle);
-            GUILayout.Label("Search the included city presets and all countries in the bundled Natural Earth data.", bodyStyle);
+            GUILayout.Label("Type any city, or a country to see its largest cities.", bodyStyle);
             viewpointSearch = GUILayout.TextField(
                 viewpointSearch ?? string.Empty,
                 GUILayout.Height(GlassGlobeUi.GetInteractiveControlHeight(38f)));
             BuildFilteredChoices();
 
-            int visibleChoiceCount = Mathf.Min(6, filteredChoices.Count);
+            int visibleChoiceCount = Mathf.Min(MaxViewpointResults, filteredChoices.Count);
             for (int index = 0; index < visibleChoiceCount; index++)
             {
                 ViewpointChoice choice = filteredChoices[index];
@@ -683,6 +742,12 @@ namespace GlassGlobe
             buttonStyle = new GUIStyle(GUI.skin.button);
             buttonStyle.fontSize = 18;
             buttonStyle.wordWrap = true;
+
+            // The viewport season button is twice the size of a settings
+            // button, so its label is scaled to match instead of sitting small
+            // in the middle of it.
+            seasonButtonStyle = new GUIStyle(buttonStyle);
+            seasonButtonStyle.fontSize = 40;
 
             entryButtonStyle = new GUIStyle(buttonStyle);
         }

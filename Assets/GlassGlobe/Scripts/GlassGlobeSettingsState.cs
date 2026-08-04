@@ -1,3 +1,5 @@
+using System;
+using System.Globalization;
 using UnityEngine;
 
 namespace GlassGlobe
@@ -36,6 +38,11 @@ namespace GlassGlobe
     {
         private const string Prefix = "GlassGlobe.Settings.";
 
+        /// <summary>
+        /// The one thickness country outlines use when they are switched on.
+        /// </summary>
+        public const float DefaultCountryOutlineThickness = 0.1f;
+
         private const string CameraFeedKey = Prefix + "CameraFeed";
         private const string MainHudKey = Prefix + "MainHud";
         private const string CountryBannerKey = Prefix + "CountryBanner";
@@ -61,6 +68,7 @@ namespace GlassGlobe
         private const string GlobeSurfaceModeKey = Prefix + "GlobeSurfaceMode";
         private const string BlueMarbleSeasonKey = Prefix + "BlueMarbleSeason";
         private const string BlueMarbleOpacityKey = Prefix + "BlueMarbleOpacity";
+        private const string SeasonButtonKey = Prefix + "SeasonButton";
         private const string NightLightsKey = Prefix + "NightLights";
         private const string RimGlowKey = Prefix + "RimGlow";
         private const string WaterArtKey = Prefix + "WaterArt";
@@ -86,6 +94,16 @@ namespace GlassGlobe
         private const string LiveDataCategoryKey = Prefix + "Category.LiveData";
         private const string OrientCategoryKey = Prefix + "Category.Orient";
         private const string PrivacyCategoryKey = Prefix + "Category.Privacy";
+
+        /// <summary>
+        /// Saved settings live under their own prefix so a reset can wipe the
+        /// live block without touching them.
+        /// </summary>
+        private const string SnapshotPrefix = Prefix + "Saved.";
+        private const string SnapshotStampKey = SnapshotPrefix + "Stamp";
+        private const string SavedSetCountKey = SnapshotPrefix + "Count";
+
+        private static bool legacyMigrationChecked;
 
         private static bool loaded;
 
@@ -114,6 +132,7 @@ namespace GlassGlobe
         public static GlobeSurfaceMode GlobeSurface { get; private set; }
         public static BlueMarbleSeason BlueMarbleSeasonChoice { get; private set; }
         public static float BlueMarbleOpacity { get; private set; }
+        public static bool SeasonButtonVisible { get; private set; }
         public static bool NightLightsEnabled { get; private set; }
         public static bool RimGlowEnabled { get; private set; }
         public static bool WaterArtEnabled { get; private set; }
@@ -244,6 +263,307 @@ namespace GlassGlobe
             }
         }
 
+        /// <summary>
+        /// How a key is stored, so reset/save/load can move values around
+        /// without a hand-written line per setting.
+        /// </summary>
+        private enum PrefKind
+        {
+            Number,
+            Decimal,
+            Text
+        }
+
+        private struct PrefEntry
+        {
+            public readonly string Key;
+            public readonly PrefKind Kind;
+
+            /// <summary>
+            /// False for values tied to where you physically are rather than
+            /// how the app looks: the compass calibration and the viewpoint.
+            /// Reset still clears them, but Save/Load leave them alone so a set
+            /// saved at home can be loaded anywhere without dragging the old
+            /// location and heading along with it.
+            /// </summary>
+            public readonly bool InSnapshot;
+
+            public PrefEntry(string key, PrefKind kind)
+                : this(key, kind, true)
+            {
+            }
+
+            public PrefEntry(string key, PrefKind kind, bool inSnapshot)
+            {
+                Key = key;
+                Kind = kind;
+                InSnapshot = inSnapshot;
+            }
+        }
+
+        /// <summary>
+        /// Every key this class owns, with its storage type. PlayerPrefs cannot
+        /// enumerate or delete by prefix, so reset, save, and load all work off
+        /// this table; add new settings here too.
+        /// </summary>
+        private static readonly PrefEntry[] AllEntries =
+        {
+            new PrefEntry(CameraFeedKey, PrefKind.Number),
+            new PrefEntry(MainHudKey, PrefKind.Number),
+            new PrefEntry(CountryBannerKey, PrefKind.Number),
+            new PrefEntry(CountryOutlineColorKey, PrefKind.Text),
+            new PrefEntry(GridColorKey, PrefKind.Text),
+            new PrefEntry(GridVisibleKey, PrefKind.Number),
+            new PrefEntry(CountryOutlineThicknessKey, PrefKind.Decimal),
+            new PrefEntry(GridThicknessKey, PrefKind.Decimal),
+            new PrefEntry(ShowSetNorthButtonKey, PrefKind.Number),
+            new PrefEntry(HideUserCoordinatesKey, PrefKind.Number),
+            new PrefEntry(HideFarSideCoordinatesKey, PrefKind.Number),
+            new PrefEntry(HideLocationAccuracyKey, PrefKind.Number),
+            new PrefEntry(HideViewedRegionKey, PrefKind.Number),
+            new PrefEntry(ShowViewedFromNameKey, PrefKind.Number),
+            new PrefEntry(ViewpointOverrideKey, PrefKind.Number, false),
+            new PrefEntry(ViewpointLatitudeKey, PrefKind.Decimal, false),
+            new PrefEntry(ViewpointLongitudeKey, PrefKind.Decimal, false),
+            new PrefEntry(ViewpointLabelKey, PrefKind.Text, false),
+            new PrefEntry(CountryLabelsKey, PrefKind.Number),
+            new PrefEntry(MilkyWayKey, PrefKind.Number),
+            new PrefEntry(SunKey, PrefKind.Number),
+            new PrefEntry(MoonKey, PrefKind.Number),
+            new PrefEntry(GlobeSurfaceModeKey, PrefKind.Number),
+            new PrefEntry(BlueMarbleSeasonKey, PrefKind.Number),
+            new PrefEntry(BlueMarbleOpacityKey, PrefKind.Decimal),
+            new PrefEntry(SeasonButtonKey, PrefKind.Number),
+            new PrefEntry(NightLightsKey, PrefKind.Number),
+            new PrefEntry(RimGlowKey, PrefKind.Number),
+            new PrefEntry(WaterArtKey, PrefKind.Number),
+            new PrefEntry(WaterArtOpacityKey, PrefKind.Decimal),
+            new PrefEntry(LandArtKey, PrefKind.Number),
+            new PrefEntry(LandArtOpacityKey, PrefKind.Decimal),
+            new PrefEntry(OceanArtKey, PrefKind.Number),
+            new PrefEntry(OceanArtOpacityKey, PrefKind.Decimal),
+            new PrefEntry(ArtCloudsKey, PrefKind.Number),
+            new PrefEntry(ArtCloudsOpacityKey, PrefKind.Decimal),
+            new PrefEntry(WeatherCloudsKey, PrefKind.Number),
+            new PrefEntry(WeatherRadarKey, PrefKind.Number),
+            new PrefEntry(SatellitesKey, PrefKind.Number),
+            new PrefEntry(EarthquakesKey, PrefKind.Number),
+            new PrefEntry(HeadingFineOffsetKey, PrefKind.Decimal, false),
+            new PrefEntry(LegacyHeadingOffsetKey, PrefKind.Decimal, false),
+            new PrefEntry(LegacyManualHeadingKey, PrefKind.Number, false),
+            new PrefEntry(ViewpointCategoryKey, PrefKind.Number),
+            new PrefEntry(BackgroundCategoryKey, PrefKind.Number),
+            new PrefEntry(DisplayCategoryKey, PrefKind.Number),
+            new PrefEntry(EarthStylesCategoryKey, PrefKind.Number),
+            new PrefEntry(WeatherCategoryKey, PrefKind.Number),
+            new PrefEntry(LiveDataCategoryKey, PrefKind.Number),
+            new PrefEntry(OrientCategoryKey, PrefKind.Number),
+            new PrefEntry(PrivacyCategoryKey, PrefKind.Number)
+        };
+
+        /// <summary>
+        /// How many named settings sets can be kept.
+        /// </summary>
+        public const int MaxSavedSets = 8;
+
+        public static bool HasSavedSettings
+        {
+            get { return SavedSetCount > 0; }
+        }
+
+        public static int SavedSetCount
+        {
+            get
+            {
+                MigrateLegacySavedSet();
+                return Mathf.Clamp(PlayerPrefs.GetInt(SavedSetCountKey, 0), 0, MaxSavedSets);
+            }
+        }
+
+        public static string GetSavedSetName(int slot)
+        {
+            if (slot < 0 || slot >= SavedSetCount)
+            {
+                return string.Empty;
+            }
+
+            return PlayerPrefs.GetString(SlotNameKey(slot), "Set " + (slot + 1));
+        }
+
+        /// <summary>
+        /// Copies the whole live settings block into a named set, replacing any
+        /// set already using that name. Settings left untouched have no key at
+        /// all, and that absence is copied too, so restoring reproduces the
+        /// state exactly rather than freezing today's defaults in place.
+        /// Returns false only when the name is empty or there is no room left.
+        /// </summary>
+        public static bool SaveSettingsAs(string name)
+        {
+            Load();
+            string trimmed = (name ?? string.Empty).Trim();
+            if (trimmed.Length == 0)
+            {
+                return false;
+            }
+
+            int slot = FindSavedSetByName(trimmed);
+            int count = SavedSetCount;
+            if (slot < 0)
+            {
+                if (count >= MaxSavedSets)
+                {
+                    return false;
+                }
+
+                slot = count;
+                PlayerPrefs.SetInt(SavedSetCountKey, count + 1);
+            }
+
+            for (int index = 0; index < AllEntries.Length; index++)
+            {
+                PrefEntry entry = AllEntries[index];
+                if (!entry.InSnapshot)
+                {
+                    continue;
+                }
+
+                CopyPref(entry.Key, SlotKey(slot, entry.Key), entry.Kind);
+            }
+
+            PlayerPrefs.SetString(SlotNameKey(slot), trimmed);
+            PlayerPrefs.Save();
+            return true;
+        }
+
+        /// <summary>
+        /// Restores a named set. The caller is responsible for pushing the
+        /// restored values back onto the scene.
+        /// </summary>
+        public static bool LoadSavedSet(int slot)
+        {
+            if (slot < 0 || slot >= SavedSetCount)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < AllEntries.Length; index++)
+            {
+                PrefEntry entry = AllEntries[index];
+                if (!entry.InSnapshot)
+                {
+                    continue;
+                }
+
+                CopyPref(SlotKey(slot, entry.Key), entry.Key, entry.Kind);
+            }
+
+            PlayerPrefs.Save();
+            loaded = false;
+            Load();
+            return true;
+        }
+
+        private static int FindSavedSetByName(string name)
+        {
+            int count = SavedSetCount;
+            for (int slot = 0; slot < count; slot++)
+            {
+                if (string.Equals(GetSavedSetName(slot), name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return slot;
+                }
+            }
+
+            return -1;
+        }
+
+        private static string SlotKey(int slot, string key)
+        {
+            return SnapshotPrefix + slot + "." + key;
+        }
+
+        private static string SlotNameKey(int slot)
+        {
+            return SnapshotPrefix + slot + ".Name";
+        }
+
+        /// <summary>
+        /// The first version of this feature kept a single unnamed set. Fold it
+        /// into slot 0 rather than silently dropping whatever was saved with it.
+        /// </summary>
+        private static void MigrateLegacySavedSet()
+        {
+            if (legacyMigrationChecked)
+            {
+                return;
+            }
+
+            legacyMigrationChecked = true;
+            if (!PlayerPrefs.HasKey(SnapshotStampKey) ||
+                PlayerPrefs.GetInt(SavedSetCountKey, 0) > 0)
+            {
+                return;
+            }
+
+            for (int index = 0; index < AllEntries.Length; index++)
+            {
+                PrefEntry entry = AllEntries[index];
+                if (!entry.InSnapshot)
+                {
+                    continue;
+                }
+
+                CopyPref(SnapshotPrefix + entry.Key, SlotKey(0, entry.Key), entry.Kind);
+                PlayerPrefs.DeleteKey(SnapshotPrefix + entry.Key);
+            }
+
+            PlayerPrefs.SetString(SlotNameKey(0), "Saved settings");
+            PlayerPrefs.SetInt(SavedSetCountKey, 1);
+            PlayerPrefs.DeleteKey(SnapshotStampKey);
+            PlayerPrefs.Save();
+        }
+
+        /// <summary>
+        /// Clears every live setting and reloads the shipping defaults. The
+        /// saved slot is deliberately left alone, so a reset can be undone with
+        /// Load Settings. The caller is responsible for pushing the reloaded
+        /// values back onto the scene.
+        /// </summary>
+        public static void ResetToDefaults()
+        {
+            for (int index = 0; index < AllEntries.Length; index++)
+            {
+                PlayerPrefs.DeleteKey(AllEntries[index].Key);
+            }
+
+            PlayerPrefs.Save();
+            loaded = false;
+            Load();
+        }
+
+        private static void CopyPref(string fromKey, string toKey, PrefKind kind)
+        {
+            if (!PlayerPrefs.HasKey(fromKey))
+            {
+                // "Never set" is itself part of the state worth reproducing.
+                PlayerPrefs.DeleteKey(toKey);
+                return;
+            }
+
+            switch (kind)
+            {
+                case PrefKind.Decimal:
+                    PlayerPrefs.SetFloat(toKey, PlayerPrefs.GetFloat(fromKey));
+                    break;
+                case PrefKind.Text:
+                    PlayerPrefs.SetString(toKey, PlayerPrefs.GetString(fromKey));
+                    break;
+                default:
+                    PlayerPrefs.SetInt(toKey, PlayerPrefs.GetInt(fromKey));
+                    break;
+            }
+        }
+
         public static void Load()
         {
             if (loaded)
@@ -257,7 +577,8 @@ namespace GlassGlobe
             CountryOutlineColor = ReadColor(CountryOutlineColorKey, new Color(0.25f, 1f, 0.4f, 1f));
             GridColor = ReadColor(GridColorKey, new Color(0.15f, 0.88f, 1f, 0.95f));
             GridVisible = ReadBool(GridVisibleKey, true);
-            CountryOutlineThickness = Mathf.Clamp(PlayerPrefs.GetFloat(CountryOutlineThicknessKey, 0.25f), 0.25f, 3f);
+            CountryOutlineThickness = Mathf.Clamp(
+                PlayerPrefs.GetFloat(CountryOutlineThicknessKey, DefaultCountryOutlineThickness), 0f, 3f);
             GridThickness = Mathf.Clamp(PlayerPrefs.GetFloat(GridThicknessKey, 0.25f), 0.25f, 3f);
             ShowSetNorthButton = ReadBool(ShowSetNorthButtonKey, false);
             HideUserCoordinates = ReadBool(HideUserCoordinatesKey, false);
@@ -282,6 +603,7 @@ namespace GlassGlobe
                 (int)BlueMarbleSeason.Spring,
                 (int)BlueMarbleSeason.Winter);
             BlueMarbleOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(BlueMarbleOpacityKey, 1f));
+            SeasonButtonVisible = ReadBool(SeasonButtonKey, true);
             NightLightsEnabled = false;
             RimGlowEnabled = false;
             WaterArtEnabled = ReadBool(WaterArtKey, true);
@@ -307,6 +629,7 @@ namespace GlassGlobe
             PrivacyCategoryEnabled = ReadBool(PrivacyCategoryKey, true);
             loaded = true;
         }
+
 
         public static void SetCameraFeedEnabled(bool value)
         {
@@ -353,7 +676,9 @@ namespace GlassGlobe
         public static void SetCountryOutlineThickness(float value)
         {
             Load();
-            CountryOutlineThickness = Mathf.Clamp(value, 0.25f, 3f);
+            // Snap to whole percent so repeated 10% steps cannot drift on
+            // floating point (0.1 + 0.1 + 0.1 = 0.30000004).
+            CountryOutlineThickness = Mathf.Round(Mathf.Clamp(value, 0f, 3f) * 100f) / 100f;
             WriteFloat(CountryOutlineThicknessKey, CountryOutlineThickness);
         }
 
@@ -483,6 +808,32 @@ namespace GlassGlobe
             Load();
             BlueMarbleSeasonChoice = value;
             WriteInt(BlueMarbleSeasonKey, (int)value);
+        }
+
+        public static void SetSeasonButtonVisible(bool value)
+        {
+            Load();
+            SeasonButtonVisible = value;
+            WriteBool(SeasonButtonKey, value);
+        }
+
+        /// <summary>
+        /// Country outlines are either on at 10% or off entirely; the old
+        /// free-running thickness is kept as the storage so existing saves keep
+        /// working.
+        /// </summary>
+        public static bool CountryLinesVisible
+        {
+            get
+            {
+                Load();
+                return CountryOutlineThickness > 0f;
+            }
+        }
+
+        public static void SetCountryLinesVisible(bool value)
+        {
+            SetCountryOutlineThickness(value ? DefaultCountryOutlineThickness : 0f);
         }
 
         public static void SetBlueMarbleOpacity(float value)

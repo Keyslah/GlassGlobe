@@ -406,7 +406,7 @@ public static class GlassGlobeProjectBuilder
             androidNeedsUpdate ||
             !importer.mipmapEnabled ||
             importer.isReadable ||
-            !importer.streamingMipmaps ||
+            importer.streamingMipmaps ||
             importer.maxTextureSize != 4096 ||
             importer.npotScale != TextureImporterNPOTScale.None ||
             importer.wrapModeU != TextureWrapMode.Repeat ||
@@ -420,7 +420,11 @@ public static class GlassGlobeProjectBuilder
             importer.sRGBTexture = true;
             importer.mipmapEnabled = true;
             importer.isReadable = false;
-            importer.streamingMipmaps = true;
+            // Mipmap streaming stays OFF: every quality level in this project
+            // has streamingMipmapsActive = 0, so the flag would claim a feature
+            // the build never runs. Turn it on only together with that quality
+            // setting.
+            importer.streamingMipmaps = false;
             importer.maxTextureSize = 4096;
             importer.npotScale = TextureImporterNPOTScale.None;
             // Equirectangular: longitude wraps at the antimeridian, latitude

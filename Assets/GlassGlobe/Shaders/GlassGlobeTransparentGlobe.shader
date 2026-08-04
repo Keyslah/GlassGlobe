@@ -25,7 +25,14 @@ Shader "GlassGlobe/Transparent Globe"
         {
             Blend SrcAlpha OneMinusSrcAlpha
             ZWrite Off
-            Cull Front
+            // Keep the FAR hemisphere, the one the border lines are drawn on.
+            // GlobeRenderer.BuildSphereMesh uses +sin(lon) while the art and
+            // weather shells use EarthMath.GeoToPoint's mirrored -sin(lon), so
+            // this mesh winds the opposite way and needs the opposite cull from
+            // those shells. With Cull Front this pass drew the near hemisphere
+            // and sampled the map under the observer's feet - invisible while
+            // the glass was a flat 6% tint, wrong as soon as it carries a map.
+            Cull Back
 
             CGPROGRAM
             #pragma vertex Vert

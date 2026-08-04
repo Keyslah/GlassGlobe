@@ -139,6 +139,19 @@ namespace GlassGlobe
 
             if (currentPage == SettingsPage.Closed)
             {
+                // The season button lives on the viewport, so it has to claim
+                // its own tap before the tap-anywhere-opens-settings rule.
+                if (!touchDragged &&
+                    seasonCycleButtonRect.width > 0f &&
+                    seasonCycleButtonRect.Contains(touchStartScreenPoint) &&
+                    seasonCycleButtonRect.Contains(screenPoint))
+                {
+                    CycleBlueMarbleSeason();
+                    lastInteractionTime = Time.unscaledTime;
+                    ResetTrackedTouch();
+                    return;
+                }
+
                 if (!touchDragged &&
                     (hud == null || !hud.IsInteractiveUiPoint(touchStartScreenPoint)))
                 {
