@@ -15,16 +15,17 @@ import android.view.Surface;
 import java.lang.ref.WeakReference;
 
 /**
- * Supplies Android's magnetometer-free game rotation vector to Unity through
- * one coherent, screen-aligned matrix snapshot per poll.
+ * Supplies Android's earth-referenced fused rotation vector to Unity through
+ * one coherent, screen-aligned matrix snapshot per poll. Every snapshot carries
+ * the Android sensor timestamp so managed code can reject cached/stale poses.
  */
-public final class GameRotationVectorProvider implements SensorEventListener {
+public final class EarthRotationVectorProvider implements SensorEventListener {
     private static final int SAMPLE_PERIOD_MICROSECONDS = 16667;
-    private static GameRotationVectorProvider instance;
+    private static EarthRotationVectorProvider instance;
 
     private final Object sampleLock = new Object();
     private final SensorManager sensorManager;
-    private final Sensor gameRotationSensor;
+    private final Sensor earthRotationSensor;
     private final float[] latestRotationVector = new float[4];
 
     private WeakReference<Activity> activityReference;
@@ -32,12 +33,13 @@ public final class GameRotationVectorProvider implements SensorEventListener {
     private boolean listening;
     private boolean hasSample;
     private long latestTimestampNanos;
+    private float latestHeadingAccuracyRadians = -1.0f;
 
-    private GameRotationVectorProvider(Activity activity) {
+    private EarthRotationVectorProvider(Activity activity) {
         Context context = activity.getApplicationContext();
         sensorManager = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
-        gameRotationSensor = sensorManager != null
-            ? sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+        earthRotationSensor = sensorManager != null
+            ? sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
             : null;
         activityReference = new WeakReference<>(activity);
     }
@@ -48,7 +50,7 @@ public final class GameRotationVectorProvider implements SensorEventListener {
         }
 
         if (instance == null) {
-            instance = new GameRotationVectorProvider(activity);
+            instance = new EarthRotationVectorProvider(activity);
         } else {
             instance.activityReference = new WeakReference<>(activity);
         }
@@ -63,8 +65,8 @@ public final class GameRotationVectorProvider implements SensorEventListener {
     }
 
     public static float[] snapshot() {
-        GameRotationVectorProvider provider;
-        synchronized (GameRotationVectorProvider.class) {
+        EarthRotationVectorProvider provider;
+        synchronized (EarthRotationVectorProvider.class) {
             provider = instance;
         }
 
@@ -72,7 +74,7 @@ public final class GameRotationVectorProvider implements SensorEventListener {
     }
 
     private synchronized boolean startInternal() {
-        if (gameRotationSensor == null || sensorManager == null) {
+        if (earthRotationSensor == null || sensorManager == null) {
             return false;
         }
 
@@ -83,16 +85,17 @@ public final class GameRotationVectorProvider implements SensorEventListener {
         synchronized (sampleLock) {
             hasSample = false;
             latestTimestampNanos = 0L;
+            latestHeadingAccuracyRadians = -1.0f;
         }
 
-        HandlerThread newThread = new HandlerThread("GlassGlobeGameRotation");
+        HandlerThread newThread = new HandlerThread("GlassGlobeEarthRotation");
         newThread.start();
         Handler handler = new Handler(newThread.getLooper());
         boolean registered;
         try {
             registered = sensorManager.registerListener(
                 this,
-                gameRotationSensor,
+                earthRotationSensor,
                 SAMPLE_PERIOD_MICROSECONDS,
                 handler);
         } catch (RuntimeException exception) {
@@ -118,6 +121,7 @@ public final class GameRotationVectorProvider implements SensorEventListener {
         synchronized (sampleLock) {
             hasSample = false;
             latestTimestampNanos = 0L;
+            latestHeadingAccuracyRadians = -1.0f;
         }
 
         if (sensorThread != null) {
@@ -128,7 +132,7 @@ public final class GameRotationVectorProvider implements SensorEventListener {
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() != Sensor.TYPE_GAME_ROTATION_VECTOR || event.values.length < 3) {
+        if (event.sensor.getType() != Sensor.TYPE_ROTATION_VECTOR || event.values.length < 3) {
             return;
         }
 
@@ -145,18 +149,22 @@ public final class GameRotationVectorProvider implements SensorEventListener {
             latestRotationVector[2] = z;
             latestRotationVector[3] = w;
             latestTimestampNanos = event.timestamp;
+            latestHeadingAccuracyRadians = event.values.length >= 5
+                ? event.values[4]
+                : -1.0f;
             hasSample = true;
         }
     }
 
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
-        // The game rotation vector does not expose a magnetic heading accuracy.
+        // Per-sample heading accuracy is copied from values[4] when available.
     }
 
     private float[] snapshotInternal() {
         float[] rotationVector = new float[4];
         long timestampNanos;
+        float headingAccuracyRadians;
         synchronized (sampleLock) {
             if (!hasSample) {
                 return null;
@@ -164,6 +172,7 @@ public final class GameRotationVectorProvider implements SensorEventListener {
 
             System.arraycopy(latestRotationVector, 0, rotationVector, 0, rotationVector.length);
             timestampNanos = latestTimestampNanos;
+            headingAccuracyRadians = latestHeadingAccuracyRadians;
         }
 
         float[] naturalMatrix = new float[9];
@@ -202,10 +211,11 @@ public final class GameRotationVectorProvider implements SensorEventListener {
         }
 
         long ageNanos = SystemClock.elapsedRealtimeNanos() - timestampNanos;
-        float[] result = new float[11];
+        float[] result = new float[12];
         System.arraycopy(displayMatrix, 0, result, 0, displayMatrix.length);
         result[9] = Math.max(0L, ageNanos) * 0.000000001f;
         result[10] = displayRotation;
+        result[11] = headingAccuracyRadians;
         return result;
     }
 

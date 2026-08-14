@@ -14,7 +14,7 @@ namespace GlassGlobe
             GUILayout.Space(14f);
             GUILayout.Label("Align with the sky", headingStyle);
             GUILayout.Label(
-                "Set north directly, or use the real Sun or Moon to align the ARCore orientation lock.",
+                "Set north directly, or use the real Sun or Moon to align the phone's continuous sensor orientation.",
                 bodyStyle);
             GUILayout.Space(10f);
 
@@ -27,7 +27,7 @@ namespace GlassGlobe
 
             GUILayout.Label("Quick north alignment", headingStyle);
             GUILayout.Label(
-                "Hold the phone upright and aim the center dot toward true north, then tap the button. ARCore keeps that heading locked using camera and motion tracking. Set north again whenever you want to reset it.",
+                "Hold the phone upright and aim the center dot toward true north, then tap the button. The motion sensors keep that heading even when the optional camera is off or loses tracking. Set north again whenever you want to reset it.",
                 bodyStyle);
             GUILayout.Space(6f);
             DrawButton("My Phone Is Facing North", AlignPhoneToNorth, 72f);
@@ -40,7 +40,7 @@ namespace GlassGlobe
             GUILayout.Space(16f);
             GUILayout.Label("Fine alignment", headingStyle);
             GUILayout.Label(
-                "Point the center dot at the real Sun or Moon and capture. This uses your GPS position and the body's current sky position to correct the same ARCore heading lock. Never look directly at the Sun - watch the screen only.",
+                "Point the center dot at the real Sun or Moon and capture. This uses your GPS position and the body's current sky position to correct the same sensor heading calibration. Never look directly at the Sun - watch the screen only.",
                 bodyStyle);
             GUILayout.Space(8f);
 
@@ -82,11 +82,9 @@ namespace GlassGlobe
             GUILayout.Label(
                 string.Format(
                     "{0}\nCurrent manual correction: {1:+0.0;-0.0;0.0} deg\nSun: azimuth {2:0} deg, altitude {3:0} deg\nMoon: azimuth {4:0} deg, altitude {5:0} deg",
-                    poseSensors.ArNorthLockActive
-                        ? "ARCore north lock: ON"
-                        : poseSensors.GyroNorthLockActive
-                            ? "Gyro fallback north lock: ON"
-                            : "North lock: OFF",
+                    poseSensors.GyroNorthLockActive
+                        ? "Sensor north lock: ON"
+                        : "North lock: OFF",
                     poseSensors.ActiveHeadingCorrectionDegrees,
                     sunAzimuth,
                     sunAltitude,
@@ -118,7 +116,7 @@ namespace GlassGlobe
             }
 
             orientStatusMessage =
-                (poseSensors.ArNorthLockActive ? "ARCore north locked. Applied " : "Gyro fallback north locked. Applied ") +
+                "Sensor north locked. Applied " +
                 correctionDegrees.ToString("+0.0;-0.0;0.0") +
                 " deg; set it again whenever you want to reset the heading.";
             BackToViewpoint();
@@ -343,9 +341,10 @@ namespace GlassGlobe
                 }
                 else
                 {
-                    orientStatusMessage = poseSensors.GameRotationAvailable
-                        ? "Wait for the gyro-only orientation sensor, center the dot on the " + BodyName(alignTarget) + ", then try again."
-                        : "This phone's gyro-only orientation sensor is unavailable, so metal-resistant sky alignment cannot start.";
+                    orientStatusMessage =
+                        "Wait for the earth-referenced orientation sensor, center the dot on the " +
+                        BodyName(alignTarget) + ", then try again. " +
+                        poseSensors.OrientationStatus;
                 }
 
                 return;
@@ -354,7 +353,7 @@ namespace GlassGlobe
             orientStatusMessage = string.Format(
                 "Aligned to the {0}. {1} corrected the heading by {2:+0.0;-0.0;0.0} deg.",
                 BodyName(alignTarget),
-                poseSensors.ArNorthLockActive ? "ARCore" : "Gyro fallback",
+                "Earth-referenced sensors",
                 azimuthCorrection);
             currentPage = SettingsPage.Orient;
         }

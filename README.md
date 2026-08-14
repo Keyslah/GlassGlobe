@@ -14,7 +14,8 @@ way through.
   Earth 1:110m, drawn as great-circle arcs, with a readout naming whatever the
   center dot is on.
 - **Blue Marble surface** — NASA satellite imagery on the globe, in four seasons,
-  with adjustable transparency and a season button on the viewport.
+  with adjustable transparency and a season button on the viewport. Only the
+  selected season is loaded into runtime texture memory.
 - **Sky** — the Milky Way, Sun, and Moon at their true positions for your location
   and the current time, with the Moon showing its real phase.
 - **Live data** — satellite clouds and rain radar, the ISS and Tiangong, and
@@ -25,10 +26,11 @@ way through.
 
 ## How it works
 
-- Your **GPS position** places a virtual camera on a globe. The phone's **fused
-  attitude sensor** (gravity + gyroscope + magnetometer) orients it, with a slow
-  filter pulling yaw toward true north and a **Set North** button for on-the-spot
-  calibration.
+- Your **GPS position** places a virtual camera on a globe. Android's fused,
+  earth-referenced rotation vector continuously owns the view and keeps yaw tied
+  to north. **Set North** applies a fixed on-the-spot correction without depending
+  on camera tracking. The optional AR session is camera-only: tracking loss or
+  relocalization cannot freeze, drag, or snap the globe's orientation.
 - A ray from the camera through the screen center exits the far side of the
   globe. Everything you see is the inside of the far hemisphere: concave and
   mirror-flipped, because that is what a glass Earth would actually show you.
@@ -39,8 +41,9 @@ way through.
   winding is the opposite of every shell mesh and the globe shader needs
   `Cull Back` where the shells use `Cull Front`. Getting this wrong draws the
   hemisphere under your feet instead of the one you are looking at.
-- The rear camera feed renders behind the overlay, switching the field of view
-  between the phone lens (~70°) and a through-a-window eye FOV (32.4°).
+- The optional rear camera feed renders behind the overlay, switching the field of
+  view between the phone lens (~70°) and a through-a-window eye FOV (32.4°).
+  Its ARCore session and camera streams stop when the feed is off.
 
 Accuracy with stock sensors is compass-grade: within a few degrees outdoors,
 worse near metal or indoors.

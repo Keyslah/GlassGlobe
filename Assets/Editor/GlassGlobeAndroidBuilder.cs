@@ -11,9 +11,9 @@ public static class GlassGlobeAndroidBuilder
     private const string OutputPath = "Builds/Android/GlassGlobePreview.apk";
     private const string PreviewPackageName = "com.glassglobe.preview";
     private const string PlayPackageName = "com.GlassGlobe.myapp";
-    private const string VersionName = "0.2.6";
-    private const int VersionCode = 18;
-    private const string PlayBundleOutputPath = "Builds/Android/GlassGlobe-0.2.6-18.aab";
+    private const string VersionName = "0.2.7";
+    private const int VersionCode = 19;
+    private const string PlayBundleOutputPath = "Builds/Android/GlassGlobe-0.2.7-19.aab";
 
     [MenuItem("GlassGlobe/Build Android Preview APK")]
     public static void BuildPreviewApk()

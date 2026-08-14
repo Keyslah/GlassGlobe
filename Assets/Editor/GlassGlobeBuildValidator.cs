@@ -124,13 +124,10 @@ public static class GlassGlobeBuildValidator
 
         BlueMarbleSurface blueMarble = FindInScene<BlueMarbleSurface>(scene);
         LogRequired(ref errors, blueMarble != null, "GlassGlobeBuildValidator: missing BlueMarbleSurface on the globe.");
-        if (blueMarble != null)
-        {
-            LogRequired(ref errors, blueMarble.springTexture != null, "GlassGlobeBuildValidator: Blue Marble spring texture is not assigned, the season would be missing from the build.");
-            LogRequired(ref errors, blueMarble.summerTexture != null, "GlassGlobeBuildValidator: Blue Marble summer texture is not assigned, the season would be missing from the build.");
-            LogRequired(ref errors, blueMarble.fallTexture != null, "GlassGlobeBuildValidator: Blue Marble fall texture is not assigned, the season would be missing from the build.");
-            LogRequired(ref errors, blueMarble.winterTexture != null, "GlassGlobeBuildValidator: Blue Marble winter texture is not assigned, the season would be missing from the build.");
-        }
+        LogRequired(ref errors, HasBlueMarbleResource("Spring"), "GlassGlobeBuildValidator: Blue Marble spring Resources texture is missing.");
+        LogRequired(ref errors, HasBlueMarbleResource("Summer"), "GlassGlobeBuildValidator: Blue Marble summer Resources texture is missing.");
+        LogRequired(ref errors, HasBlueMarbleResource("Fall"), "GlassGlobeBuildValidator: Blue Marble fall Resources texture is missing.");
+        LogRequired(ref errors, HasBlueMarbleResource("Winter"), "GlassGlobeBuildValidator: Blue Marble winter Resources texture is missing.");
 
         SunMoonBackground sunMoon = FindInScene<SunMoonBackground>(scene);
         LogRequired(ref errors, sunMoon != null, "GlassGlobeBuildValidator: missing SunMoonBackground.");
@@ -293,6 +290,12 @@ public static class GlassGlobeBuildValidator
         }
 
         return false;
+    }
+
+    private static bool HasBlueMarbleResource(string season)
+    {
+        string path = "Assets/GlassGlobe/Resources/GlassGlobeBlueMarble" + season + ".jpg";
+        return AssetDatabase.LoadAssetAtPath<Texture2D>(path) != null;
     }
 
     private static string GetPath(GameObject gameObject)

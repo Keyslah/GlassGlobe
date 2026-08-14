@@ -64,11 +64,20 @@ namespace GlassGlobe
         /// </summary>
         private const float NearestRegionMinDot = 0.99452f;
 
+        /// <summary>
+        /// Natural Earth 110m vertices are stored to 0.01 degree precision. A
+        /// smaller-than-visible 0.02 degree movement therefore cannot add useful
+        /// precision to the displayed name, but sensor jitter can otherwise make
+        /// the exact coastline query run every rendered frame.
+        /// </summary>
+        private const float RegionCacheAngularToleranceDegrees = 0.02f;
+        private const float RegionCacheAngularToleranceSquared =
+            RegionCacheAngularToleranceDegrees * RegionCacheAngularToleranceDegrees;
+
         private OutlineCache[] outlineCaches;
         private List<GeoOutline> cachedOutlinesSource;
         private readonly List<GeneratedLine> generatedLines = new List<GeneratedLine>();
         private readonly Dictionary<uint, Material> lineMaterialCache = new Dictionary<uint, Material>();
-        private int regionCacheFrame = -1;
         private GeoCoordinate regionCacheCoordinate;
         private string regionCacheResult;
 
@@ -89,6 +98,11 @@ namespace GlassGlobe
             }
         }
 
+        private void OnValidate()
+        {
+            InvalidateLookupCaches();
+        }
+
         public bool LoadRealOutlines()
         {
             List<GeoOutline> loaded = CountryDataLoader.LoadOutlines();
@@ -98,16 +112,23 @@ namespace GlassGlobe
             }
 
             outlines = loaded;
+            InvalidateLookupCaches();
             return true;
         }
 
         public void ResetToSampleData()
         {
             outlines = CreateSampleOutlines();
+            InvalidateLookupCaches();
         }
 
         public void RebuildBorders()
         {
+            // RebuildBorders is also the public signal that callers may have
+            // edited points in the existing list in place. Recompute lookup
+            // caps and cached labels together with the rendered lines.
+            InvalidateLookupCaches();
+
             if (globe == null)
             {
                 globe = FindFirstObjectByType<GlobeRenderer>();
@@ -237,12 +258,15 @@ namespace GlassGlobe
                 return "No sample data";
             }
 
-            // The HUD banner and readout each query once per OnGUI event, so
-            // memoize per frame; the far-side point barely moves between calls.
-            if (regionCacheFrame == Time.frameCount &&
-                regionCacheResult != null &&
-                Mathf.Abs(coordinate.Latitude - regionCacheCoordinate.Latitude) < 0.005f &&
-                Mathf.Abs(Mathf.DeltaAngle(coordinate.Longitude, regionCacheCoordinate.Longitude)) < 0.005f)
+            // Keep the last exact answer while the pointing coordinate remains
+            // below the source data's useful angular precision. This removes the
+            // continuous nearest-coastline scan caused by tiny sensor jitter;
+            // cumulative movement beyond the tolerance immediately recomputes.
+            if (regionCacheResult != null &&
+                cachedOutlinesSource == outlines &&
+                outlineCaches != null &&
+                outlineCaches.Length == outlines.Count &&
+                IsWithinRegionCacheTolerance(coordinate, regionCacheCoordinate))
             {
                 return regionCacheResult;
             }
@@ -318,10 +342,36 @@ namespace GlassGlobe
                 }
             }
 
-            regionCacheFrame = Time.frameCount;
             regionCacheCoordinate = coordinate;
             regionCacheResult = result;
             return result;
+        }
+
+        private static bool IsWithinRegionCacheTolerance(
+            GeoCoordinate coordinate,
+            GeoCoordinate cachedCoordinate)
+        {
+            float latitudeDelta = coordinate.Latitude - cachedCoordinate.Latitude;
+            if (Mathf.Abs(latitudeDelta) > RegionCacheAngularToleranceDegrees)
+            {
+                return false;
+            }
+
+            // Scale longitude by latitude so the threshold is angular distance
+            // on the globe rather than an overly strict lat/lon rectangle. The
+            // delta-angle call also keeps the cache correct across the dateline.
+            float longitudeDelta = Mathf.DeltaAngle(
+                cachedCoordinate.Longitude,
+                coordinate.Longitude);
+            float meanLatitudeRadians =
+                (coordinate.Latitude + cachedCoordinate.Latitude) *
+                0.5f * Mathf.Deg2Rad;
+            float scaledLongitudeDelta =
+                longitudeDelta * Mathf.Cos(meanLatitudeRadians);
+            float angularDistanceSquared =
+                latitudeDelta * latitudeDelta +
+                scaledLongitudeDelta * scaledLongitudeDelta;
+            return angularDistanceSquared <= RegionCacheAngularToleranceSquared;
         }
 
         /// <summary>
@@ -466,6 +516,13 @@ namespace GlassGlobe
             }
 
             cachedOutlinesSource = outlines;
+        }
+
+        private void InvalidateLookupCaches()
+        {
+            outlineCaches = null;
+            cachedOutlinesSource = null;
+            regionCacheResult = null;
         }
 
         private bool HasLineTracking()

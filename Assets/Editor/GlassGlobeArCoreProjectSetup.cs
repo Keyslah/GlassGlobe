@@ -6,8 +6,10 @@ using UnityEngine.Rendering;
 using UnityEngine.XR.Management;
 
 /// <summary>
-/// Keeps the generated project configured for ARCore after package resolution
-/// and before Android builds. This is idempotent and safe to run repeatedly.
+    /// Keeps the generated project configured for the optional AR camera after
+    /// package resolution and before Android builds. Runtime code starts ARCore
+    /// only while the camera view is requested. This is idempotent and safe to
+    /// run repeatedly.
 /// </summary>
 [InitializeOnLoad]
 public static class GlassGlobeArCoreProjectSetup
@@ -20,7 +22,7 @@ public static class GlassGlobeArCoreProjectSetup
         EditorApplication.delayCall += EnsureConfigured;
     }
 
-    [MenuItem("GlassGlobe/Configure Invisible ARCore Tracking")]
+    [MenuItem("GlassGlobe/Configure Optional ARCore Camera")]
     public static void EnsureConfigured()
     {
         if (EditorApplication.isCompiling || EditorApplication.isUpdating)
@@ -103,12 +105,12 @@ public static class GlassGlobeArCoreProjectSetup
         if (loaderAssigned)
         {
             Debug.Log(
-                "GlassGlobe ARCore setup: Android loader enabled; OpenGL ES 3 selected; camera tracking can run with its background hidden.");
+                "GlassGlobe ARCore setup: Android loader enabled; OpenGL ES 3 selected; runtime camera tracking starts on demand.");
         }
         else
         {
             Debug.LogWarning(
-                "GlassGlobe ARCore setup: loader metadata is not ready yet. Close XR Plug-in Management if it is open, then run GlassGlobe/Configure Invisible ARCore Tracking.");
+                "GlassGlobe ARCore setup: loader metadata is not ready yet. Close XR Plug-in Management if it is open, then run GlassGlobe/Configure Optional ARCore Camera.");
         }
     }
 

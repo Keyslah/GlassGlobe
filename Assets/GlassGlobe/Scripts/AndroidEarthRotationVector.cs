@@ -8,12 +8,12 @@ using UnityEngine.Android;
 namespace GlassGlobe
 {
     /// <summary>
-    /// Polls Android's magnetometer-free game rotation vector and converts its
-    /// screen-aligned device basis into GlassGlobe's Unity ENU basis.
+    /// Polls Android's earth-referenced fused rotation vector, verifies its
+    /// sensor timestamp, and converts the screen-aligned basis into Unity ENU.
     /// </summary>
-    internal sealed class AndroidGameRotationVector : IDisposable
+    internal sealed class AndroidEarthRotationVector : IDisposable
     {
-        private const string JavaClassName = "com.glassglobe.sensors.GameRotationVectorProvider";
+        private const string JavaClassName = "com.glassglobe.sensors.EarthRotationVectorProvider";
         private const float MaximumSampleAgeSeconds = 0.5f;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -81,10 +81,14 @@ namespace GlassGlobe
 #endif
         }
 
-        public bool TryGetRotation(out Quaternion deviceInEnu, out int displayRotation)
+        public bool TryGetRotation(
+            out Quaternion deviceInEnu,
+            out int displayRotation,
+            out float headingAccuracyDegrees)
         {
             deviceInEnu = Quaternion.identity;
             displayRotation = -1;
+            headingAccuracyDegrees = -1f;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (provider == null || !listening)
@@ -95,7 +99,7 @@ namespace GlassGlobe
             try
             {
                 float[] snapshot = provider.CallStatic<float[]>("snapshot");
-                if (snapshot == null || snapshot.Length < 11)
+                if (snapshot == null || snapshot.Length < 12)
                 {
                     return false;
                 }
@@ -109,6 +113,14 @@ namespace GlassGlobe
                 }
 
                 displayRotation = Mathf.RoundToInt(snapshot[10]);
+                float headingAccuracyRadians = snapshot[11];
+                if (IsFinite(headingAccuracyRadians) &&
+                    headingAccuracyRadians >= 0f)
+                {
+                    headingAccuracyDegrees =
+                        headingAccuracyRadians * Mathf.Rad2Deg;
+                }
+
                 return TryConvertRotationMatrix(snapshot, out deviceInEnu);
             }
             catch (Exception exception)
@@ -140,8 +152,8 @@ namespace GlassGlobe
             }
 
             // Android's row-major matrix maps screen-aligned device axes into
-            // world (east, arbitrary-horizontal-reference, sky). GlassGlobe's
-            // ENU order is (east, sky, horizontal-reference), and the rear
+            // world (east, magnetic north, sky). GlassGlobe's ENU order is
+            // (east, sky, north), and the rear
             // camera looks opposite Android's +Z screen-normal axis.
             Vector3 cameraForward = new Vector3(-matrix[2], -matrix[8], -matrix[5]);
             Vector3 screenUp = new Vector3(matrix[1], matrix[7], matrix[4]);
@@ -198,8 +210,9 @@ namespace GlassGlobe
 
             failureLogged = true;
             Debug.LogWarning(
-                "GlassGlobeSensors: Android game rotation vector " + operation +
-                " failed; gyro north lock is unavailable. " + exception.Message);
+                "GlassGlobeSensors: Android earth rotation vector " + operation +
+                " failed; the timestamped native sensor will retry. " +
+                exception.Message);
         }
 #endif
     }

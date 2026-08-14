@@ -38,9 +38,12 @@ namespace GlassGlobe
 
             ARSession arSession = Object.FindFirstObjectByType<ARSession>();
             GameObject sessionObject;
+            bool activateSessionObjectAfterSetup = false;
             if (arSession == null)
             {
                 sessionObject = new GameObject("GlassGlobe AR Session");
+                sessionObject.SetActive(false);
+                activateSessionObjectAfterSetup = true;
                 arSession = sessionObject.AddComponent<ARSession>();
             }
             else
@@ -48,16 +51,25 @@ namespace GlassGlobe
                 sessionObject = arSession.gameObject;
             }
 
-            if (sessionObject.GetComponent<ARInputManager>() == null)
+            // AR is an optional camera feature, not the orientation authority.
+            // Configure it while inactive so startup never waits for or briefly
+            // opens an AR camera frame before the display controller asks for it.
+            arSession.enabled = false;
+            arSession.matchFrameRateRequested = false;
+
+            ARInputManager inputManager =
+                sessionObject.GetComponent<ARInputManager>();
+            if (inputManager == null)
             {
-                sessionObject.AddComponent<ARInputManager>();
+                inputManager = sessionObject.AddComponent<ARInputManager>();
             }
 
+            inputManager.enabled = false;
             arSession.attemptUpdate = true;
-            arSession.enabled = true;
 
             XROrigin xrOrigin = Object.FindFirstObjectByType<XROrigin>();
             Camera trackingCamera = null;
+            GameObject createdOriginObject = null;
             if (xrOrigin != null)
             {
                 trackingCamera = xrOrigin.Camera != null
@@ -68,6 +80,8 @@ namespace GlassGlobe
             if (xrOrigin == null || trackingCamera == null)
             {
                 GameObject originObject = new GameObject(TrackingOriginName);
+                originObject.SetActive(false);
+                createdOriginObject = originObject;
                 GameObject offsetObject = new GameObject("Camera Offset");
                 offsetObject.transform.SetParent(originObject.transform, false);
 
@@ -99,7 +113,7 @@ namespace GlassGlobe
                     trackingCamera.gameObject.AddComponent<ARCameraManager>();
             }
 
-            cameraManager.enabled = true;
+            cameraManager.enabled = false;
 
             ARCameraBackground cameraBackground =
                 trackingCamera.GetComponent<ARCameraBackground>();
@@ -109,10 +123,20 @@ namespace GlassGlobe
                     trackingCamera.gameObject.AddComponent<ARCameraBackground>();
             }
 
-            // ARCore keeps receiving camera frames through ARCameraManager even
-            // while this render component and its dedicated Camera are disabled.
+            // The display controller enables the session, input, camera manager,
+            // background, and tracking camera together only when Camera is on.
             cameraBackground.enabled = false;
             trackingCamera.enabled = false;
+
+            if (createdOriginObject != null)
+            {
+                createdOriginObject.SetActive(true);
+            }
+
+            if (activateSessionObjectAfterSetup)
+            {
+                sessionObject.SetActive(true);
+            }
 
             ArCoreOrientationTracker tracker =
                 poseSensors.GetComponent<ArCoreOrientationTracker>();
@@ -132,8 +156,8 @@ namespace GlassGlobe
             if (!PlayerPrefs.HasKey(HiddenTrackingDefaultMigrationKey))
             {
                 // Existing installs used the camera image as the default. Move
-                // everyone once to hidden-camera tracking; the display toggle can
-                // still show the live camera image later.
+                // everyone once to the sensor-only globe view; the Camera toggle
+                // can still start AR and show the live image later.
                 GlassGlobeSettingsState.SetCameraFeedEnabled(false);
                 PlayerPrefs.SetInt(HiddenTrackingDefaultMigrationKey, 1);
                 PlayerPrefs.Save();
@@ -145,6 +169,8 @@ namespace GlassGlobe
             {
                 cameraFeed.targetCamera = targetCamera;
                 cameraFeed.poseSensors = poseSensors;
+                cameraFeed.arSession = arSession;
+                cameraFeed.arInputManager = inputManager;
                 cameraFeed.arTrackingCamera = trackingCamera;
                 cameraFeed.arCameraManager = cameraManager;
                 cameraFeed.arCameraBackground = cameraBackground;
@@ -153,8 +179,11 @@ namespace GlassGlobe
             }
 
             Debug.Log(
-                "GlassGlobe AR bootstrap: XR Origin and visual tracking active; camera background " +
-                (cameraBackground.enabled ? "visible." : "hidden."));
+                "GlassGlobe AR bootstrap: optional XR tracking installed; " +
+                (arSession.enabled && cameraManager.enabled
+                    ? "camera requested by the display controller."
+                    : "camera remains off while the feed is hidden.") +
+                " Frame-rate matching is disabled.");
         }
     }
 }

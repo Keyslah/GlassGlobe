@@ -5,9 +5,9 @@ using UnityEngine.XR.ARFoundation;
 namespace GlassGlobe
 {
     /// <summary>
-    /// Keeps an Earth-facing orientation on top of ARCore's visual-inertial
-    /// tracking space. ARCore owns short-term motion; Set North supplies the one
-    /// yaw needed to map that arbitrary tracking space into local ENU space.
+    /// Maps optional ARCore visual-inertial motion into the live sensor ENU frame.
+    /// Sensors remain authoritative: tracking loss falls straight back to their
+    /// live pose, and reacquisition rebases AR to that pose before blending back.
     /// </summary>
     [DefaultExecutionOrder(-120)]
     public sealed class ArCoreOrientationTracker : MonoBehaviour
@@ -25,19 +25,39 @@ namespace GlassGlobe
         public ARCameraManager cameraManager;
         public Transform trackingPose;
 
+        [Min(0.1f)]
+        [Tooltip("Seconds for AR's tracking-space mapping to converge back to the live sensor reference.")]
+        public float sensorReferenceAlignSeconds = 8f;
+
         public bool TrackingAvailable { get; private set; }
         public bool TrackingFresh { get; private set; }
         public bool NorthLockActive { get; private set; }
         public float HeadingCorrectionDegrees { get; private set; }
         public string Status { get; private set; }
+        public string FailureReason { get; private set; }
+        public bool TrackingComponentsActive
+        {
+            get
+            {
+                return arSession != null &&
+                    arSession.enabled &&
+                    cameraManager != null &&
+                    cameraManager.enabled;
+            }
+        }
 
         private InputDevice trackingDevice;
         private Quaternion currentTrackingRotation = Quaternion.identity;
         private bool hasCurrentTrackingRotation;
         private Quaternion enuFromTracking = Quaternion.identity;
+        private bool hasTrackingMapping;
+        private Quaternion latestSensorReference = Quaternion.identity;
+        private bool hasLatestSensorReference;
         private Quaternion lastDeviceInEnu = Quaternion.identity;
         private bool hasLastDeviceInEnu;
         private bool rebaseWhenTrackingReturns;
+        private int lastHardRebaseFrame = -1;
+        private int lastTrackingUpdateFrame = -1;
         private float lastAcceptedTrackingSampleTime = float.NegativeInfinity;
 
         private void Awake()
@@ -49,7 +69,9 @@ namespace GlassGlobe
         private void OnEnable()
         {
             ResolveReferences();
-            KeepTrackingComponentsEnabled();
+            Status = TrackingComponentsActive
+                ? "AR tracking starting"
+                : "AR camera off; live sensors active";
         }
 
         private void Update()
@@ -61,57 +83,145 @@ namespace GlassGlobe
         {
             if (pauseStatus)
             {
+                lastTrackingUpdateFrame = -1;
+                TrackingAvailable = false;
                 TrackingFresh = false;
                 hasCurrentTrackingRotation = false;
                 trackingDevice = default;
                 rebaseWhenTrackingReturns = NorthLockActive && hasLastDeviceInEnu;
+                FailureReason = "Application paused";
                 Status = NorthLockActive
-                    ? "AR north lock held; waiting to rebase after resume"
-                    : "AR tracking paused";
+                    ? "AR paused; live sensor north lock is retained"
+                    : "AR tracking paused (optional)";
                 return;
             }
 
             ResolveReferences();
-            KeepTrackingComponentsEnabled();
+            lastTrackingUpdateFrame = -1;
             rebaseWhenTrackingReturns = NorthLockActive && hasLastDeviceInEnu;
             Status = NorthLockActive
-                ? "AR north lock waiting for tracking"
-                : "AR tracking resuming";
+                ? "AR resuming; live sensors keep orientation active"
+                : "AR tracking resuming (optional)";
         }
 
-        public bool TryGetDeviceInEnu(out Quaternion deviceInEnu, out bool frozen)
+        public bool TryGetDeviceInEnu(
+            Quaternion liveSensorReference,
+            out Quaternion deviceInEnu)
         {
-            UpdateTrackingSample();
-            frozen = false;
-
-            if (NorthLockActive)
+            if (!TryNormalizeRotation(ref liveSensorReference))
             {
-                if (TrackingFresh && hasCurrentTrackingRotation)
-                {
-                    deviceInEnu = enuFromTracking * currentTrackingRotation;
-                    RememberDevicePose(deviceInEnu);
-                    return true;
-                }
+                deviceInEnu = Quaternion.identity;
+                FailureReason = "Live sensor reference is invalid";
+                return false;
+            }
 
-                if (hasLastDeviceInEnu)
-                {
-                    deviceInEnu = lastDeviceInEnu;
-                    frozen = true;
-                    return true;
-                }
+            latestSensorReference = liveSensorReference;
+            hasLatestSensorReference = true;
+            if (NorthLockActive && !TrackingFresh)
+            {
+                // Keep following real motion while AR is absent. This is the pose
+                // that a returning or reset tracking space must land on.
+                RememberDevicePose(liveSensorReference);
+                rebaseWhenTrackingReturns = true;
+            }
 
+            UpdateTrackingSample();
+            if (!NorthLockActive ||
+                !TrackingFresh ||
+                !hasCurrentTrackingRotation)
+            {
                 deviceInEnu = Quaternion.identity;
                 return false;
             }
 
-            if (TrackingFresh && hasCurrentTrackingRotation)
+            if (rebaseWhenTrackingReturns ||
+                !hasTrackingMapping ||
+                lastHardRebaseFrame == Time.frameCount)
             {
-                deviceInEnu = currentTrackingRotation;
-                return true;
+                RebaseTrackingTo(liveSensorReference);
+            }
+            else
+            {
+                Quaternion targetMapping =
+                    liveSensorReference *
+                    Quaternion.Inverse(currentTrackingRotation);
+                float alignFactor = 1f - Mathf.Exp(
+                    -Time.unscaledDeltaTime /
+                    Mathf.Max(0.1f, sensorReferenceAlignSeconds));
+                enuFromTracking = Quaternion.Slerp(
+                    enuFromTracking,
+                    targetMapping,
+                    alignFactor);
             }
 
-            deviceInEnu = Quaternion.identity;
-            return false;
+            deviceInEnu = enuFromTracking * currentTrackingRotation;
+            if (!TryNormalizeRotation(ref deviceInEnu))
+            {
+                FailureReason = "Mapped AR pose is invalid";
+                rebaseWhenTrackingReturns = true;
+                return false;
+            }
+
+            RememberDevicePose(deviceInEnu);
+            FailureReason = string.Empty;
+            Status = "AR tracking active; blended to live sensors";
+            return true;
+        }
+
+        // Compatibility path for callers that only want a currently tracked AR
+        // pose. It deliberately never returns a frozen last pose.
+        public bool TryGetDeviceInEnu(out Quaternion deviceInEnu, out bool frozen)
+        {
+            UpdateTrackingSample();
+            frozen = false;
+            if (!NorthLockActive ||
+                !TrackingFresh ||
+                !hasCurrentTrackingRotation ||
+                !hasTrackingMapping)
+            {
+                deviceInEnu = Quaternion.identity;
+                return false;
+            }
+
+            deviceInEnu = enuFromTracking * currentTrackingRotation;
+            return TryNormalizeRotation(ref deviceInEnu);
+        }
+
+        public bool SetNorthLockFromSensor(
+            Quaternion liveSensorReference,
+            float headingCorrectionDegrees)
+        {
+            if (!TryNormalizeRotation(ref liveSensorReference) ||
+                !IsFinite(headingCorrectionDegrees))
+            {
+                FailureReason = "Cannot set AR mapping from an invalid sensor pose";
+                return false;
+            }
+
+            latestSensorReference = liveSensorReference;
+            hasLatestSensorReference = true;
+            NorthLockActive = true;
+            HeadingCorrectionDegrees = NormalizeHeadingOffset(
+                headingCorrectionDegrees);
+            RememberDevicePose(liveSensorReference);
+
+            UpdateTrackingSample();
+            if (TrackingFresh && hasCurrentTrackingRotation)
+            {
+                RebaseTrackingTo(liveSensorReference);
+                FailureReason = string.Empty;
+                Status = "AR tracking rebased to live sensor north";
+            }
+            else
+            {
+                hasTrackingMapping = false;
+                rebaseWhenTrackingReturns = true;
+                Status = TrackingComponentsActive
+                    ? "AR waiting; live sensor north lock remains active"
+                    : "AR camera off; live sensor north lock remains active";
+            }
+
+            return true;
         }
 
         public bool TryAlignCurrentHeading(
@@ -200,6 +310,13 @@ namespace GlassGlobe
                     Quaternion.AngleAxis(degrees, Vector3.up) * lastDeviceInEnu;
             }
 
+            if (hasLatestSensorReference)
+            {
+                latestSensorReference =
+                    Quaternion.AngleAxis(degrees, Vector3.up) *
+                    latestSensorReference;
+            }
+
             if (TrackingFresh && hasCurrentTrackingRotation)
             {
                 RememberDevicePose(enuFromTracking * currentTrackingRotation);
@@ -211,12 +328,19 @@ namespace GlassGlobe
             NorthLockActive = false;
             HeadingCorrectionDegrees = 0f;
             enuFromTracking = Quaternion.identity;
+            hasTrackingMapping = false;
+            latestSensorReference = Quaternion.identity;
+            hasLatestSensorReference = false;
             lastDeviceInEnu = Quaternion.identity;
             hasLastDeviceInEnu = false;
             rebaseWhenTrackingReturns = false;
+            lastHardRebaseFrame = -1;
+            FailureReason = string.Empty;
             Status = TrackingFresh
-                ? "AR tracking ready for Set North"
-                : "AR tracking unavailable";
+                ? "AR tracking ready (optional)"
+                : TrackingComponentsActive
+                    ? "AR tracking waiting (optional)"
+                    : "AR camera off; live sensors active";
         }
 
         private bool TryGetFreshMappedRotation(out Quaternion mappedRotation)
@@ -226,6 +350,17 @@ namespace GlassGlobe
             {
                 mappedRotation = Quaternion.identity;
                 return false;
+            }
+
+            if (NorthLockActive && !hasTrackingMapping)
+            {
+                if (!hasLatestSensorReference)
+                {
+                    mappedRotation = Quaternion.identity;
+                    return false;
+                }
+
+                RebaseTrackingTo(latestSensorReference);
             }
 
             mappedRotation = NorthLockActive
@@ -254,26 +389,50 @@ namespace GlassGlobe
                 (NorthLockActive ? HeadingCorrectionDegrees : 0f) +
                 correctionDegrees);
             NorthLockActive = true;
+            hasTrackingMapping = true;
             rebaseWhenTrackingReturns = false;
 
             Quaternion mappedRotation =
                 enuFromTracking * currentTrackingRotation;
             RememberDevicePose(mappedRotation);
-            Status = "AR north lock (camera tracking, background optional)";
+            Status = "AR tracking active with north mapping";
         }
 
         private void UpdateTrackingSample()
         {
+            if (lastTrackingUpdateFrame == Time.frameCount)
+            {
+                return;
+            }
+
+            lastTrackingUpdateFrame = Time.frameCount;
             if (!Application.isMobilePlatform)
             {
                 TrackingAvailable = false;
                 TrackingFresh = false;
                 Status = "AR tracking is available in the Android build";
+                FailureReason = "Not running on a mobile device";
                 return;
             }
 
             ResolveReferences();
-            KeepTrackingComponentsEnabled();
+            if (arSession == null || cameraManager == null)
+            {
+                MarkTrackingUnavailable(
+                    "AR components unavailable; live sensors active",
+                    "ARSession or ARCameraManager is missing");
+                return;
+            }
+
+            if (!TrackingComponentsActive)
+            {
+                MarkTrackingUnavailable(
+                    NorthLockActive
+                        ? "AR camera off; live sensor north lock remains active"
+                        : "AR camera off; live sensors active",
+                    "AR session is off");
+                return;
+            }
 
             ARSessionState sessionState = ARSession.state;
             bool sessionCanTrack =
@@ -281,64 +440,104 @@ namespace GlassGlobe
             TrackingAvailable = sessionState != ARSessionState.Unsupported &&
                 sessionState != ARSessionState.None;
 
-            if (!sessionCanTrack ||
-                !TryReadTrackingRotation(out Quaternion nextRotation))
+            if (!sessionCanTrack)
             {
-                if (NorthLockActive &&
-                    TrackingFresh &&
-                    hasCurrentTrackingRotation)
-                {
-                    RememberDevicePose(
-                        enuFromTracking * currentTrackingRotation);
-                }
+                string reason = sessionState + "/" +
+                    ARSession.notTrackingReason;
+                MarkTrackingUnavailable(
+                    "AR tracking waiting (" + reason +
+                        "); live sensors active",
+                    reason);
+                return;
+            }
 
-                TrackingFresh = false;
-                hasCurrentTrackingRotation = false;
-                if (NorthLockActive && hasLastDeviceInEnu)
-                {
-                    rebaseWhenTrackingReturns = true;
-                    Status =
-                        "AR north lock (orientation frozen; tracking waiting)";
-                }
-                else
-                {
-                    Status = "AR tracking waiting: " + sessionState;
-                }
-
+            if (!TryReadTrackingRotation(out Quaternion nextRotation))
+            {
+                MarkTrackingUnavailable(
+                    "AR pose unavailable; live sensors active",
+                    "XR device pose is unavailable while the AR session is tracking");
                 return;
             }
 
             TrackingAvailable = true;
             float sampleTime = Time.realtimeSinceStartup;
-            if (rebaseWhenTrackingReturns &&
-                NorthLockActive &&
-                hasLastDeviceInEnu)
-            {
-                // ARCore can create a new arbitrary tracking-space yaw after a
-                // pause or tracking reset. Rebuild the mapping so the first pose
-                // in the new space lands exactly on the last Earth-facing pose.
-                enuFromTracking =
-                    lastDeviceInEnu * Quaternion.Inverse(nextRotation);
-                rebaseWhenTrackingReturns = false;
-            }
-            else if (NorthLockActive &&
-                hasLastDeviceInEnu &&
-                IsSilentTrackingSpaceDiscontinuity(nextRotation, sampleTime))
-            {
-                // Some relocalizations arrive without an observable isTracked
-                // false frame. Preserve the last Earth-facing pose across that
-                // otherwise instantaneous tracking-space rotation.
-                enuFromTracking =
-                    lastDeviceInEnu * Quaternion.Inverse(nextRotation);
-            }
+            bool trackingSpaceJump = NorthLockActive &&
+                IsSilentTrackingSpaceDiscontinuity(nextRotation, sampleTime);
 
             currentTrackingRotation = nextRotation;
             hasCurrentTrackingRotation = true;
             TrackingFresh = true;
             lastAcceptedTrackingSampleTime = sampleTime;
+            FailureReason = string.Empty;
+
+            if (NorthLockActive &&
+                (rebaseWhenTrackingReturns ||
+                    !hasTrackingMapping ||
+                    trackingSpaceJump))
+            {
+                if (hasLatestSensorReference)
+                {
+                    RebaseTrackingTo(latestSensorReference);
+                }
+                else if (hasLastDeviceInEnu)
+                {
+                    RebaseTrackingTo(lastDeviceInEnu);
+                }
+            }
+
             Status = NorthLockActive
-                ? "AR north lock (camera tracking, background optional)"
-                : "AR tracking ready for Set North";
+                ? hasTrackingMapping
+                    ? "AR tracking active; live sensor reference available"
+                    : "AR tracking ready; waiting for live sensor reference"
+                : "AR tracking ready (optional)";
+        }
+
+        private void MarkTrackingUnavailable(string status, string reason)
+        {
+            if (NorthLockActive)
+            {
+                if (hasLatestSensorReference)
+                {
+                    RememberDevicePose(latestSensorReference);
+                }
+                else if (TrackingFresh &&
+                    hasCurrentTrackingRotation &&
+                    hasTrackingMapping)
+                {
+                    RememberDevicePose(
+                        enuFromTracking * currentTrackingRotation);
+                }
+
+                rebaseWhenTrackingReturns = true;
+            }
+
+            TrackingAvailable = false;
+            TrackingFresh = false;
+            hasCurrentTrackingRotation = false;
+            trackingDevice = default;
+            FailureReason = reason;
+            Status = status;
+        }
+
+        private void RebaseTrackingTo(Quaternion deviceInEnu)
+        {
+            if (!hasCurrentTrackingRotation ||
+                !TryNormalizeRotation(ref deviceInEnu))
+            {
+                hasTrackingMapping = false;
+                rebaseWhenTrackingReturns = true;
+                return;
+            }
+
+            enuFromTracking =
+                deviceInEnu * Quaternion.Inverse(currentTrackingRotation);
+            hasTrackingMapping = TryNormalizeRotation(ref enuFromTracking);
+            rebaseWhenTrackingReturns = !hasTrackingMapping;
+            if (hasTrackingMapping)
+            {
+                lastHardRebaseFrame = Time.frameCount;
+                RememberDevicePose(deviceInEnu);
+            }
         }
 
         private bool TryReadTrackingRotation(out Quaternion rotation)
@@ -350,44 +549,27 @@ namespace GlassGlobe
                     InputDevices.GetDeviceAtXRNode(XRNode.CenterEye);
             }
 
-            if (trackingDevice.isValid)
+            if (!trackingDevice.isValid)
             {
-                bool isTracked;
-                bool trackingStateAvailable =
-                    trackingDevice.TryGetFeatureValue(
-                        CommonUsages.isTracked,
-                        out isTracked);
-                if (trackingStateAvailable && !isTracked)
-                {
-                    // An explicit XR tracking loss is authoritative. The
-                    // ARPoseDriver transform can retain or reset a stale pose,
-                    // so it must not be accepted through the fallback below.
-                    return false;
-                }
-
-                if (trackingDevice.TryGetFeatureValue(
-                        CommonUsages.deviceRotation,
-                        out rotation) &&
-                    TryNormalizeRotation(ref rotation))
-                {
-                    return true;
-                }
+                return false;
             }
 
-            // The XR Origin also carries an ARPoseDriver. Reading its transform
-            // is a fallback only when XR did not explicitly report tracking
-            // loss, for devices that do not populate CenterEye immediately.
-            if (trackingPose != null)
+            // Absence of an explicit tracked=true signal is not evidence of a
+            // fresh pose. ARPoseDriver transforms can retain stale rotations
+            // through tracking loss and relocalization, so never fall back to
+            // the transform merely because XR omitted isTracked.
+            if (!trackingDevice.TryGetFeatureValue(
+                    CommonUsages.isTracked,
+                    out bool isTracked) ||
+                !isTracked)
             {
-                rotation = trackingPose.localRotation;
-                if (TryNormalizeRotation(ref rotation))
-                {
-                    return true;
-                }
+                return false;
             }
 
-            rotation = Quaternion.identity;
-            return false;
+            return trackingDevice.TryGetFeatureValue(
+                    CommonUsages.deviceRotation,
+                    out rotation) &&
+                TryNormalizeRotation(ref rotation);
         }
 
         private bool IsSilentTrackingSpaceDiscontinuity(
@@ -465,19 +647,6 @@ namespace GlassGlobe
             if (trackingPose == null && cameraManager != null)
             {
                 trackingPose = cameraManager.transform;
-            }
-        }
-
-        private void KeepTrackingComponentsEnabled()
-        {
-            if (arSession != null && !arSession.enabled)
-            {
-                arSession.enabled = true;
-            }
-
-            if (cameraManager != null && !cameraManager.enabled)
-            {
-                cameraManager.enabled = true;
             }
         }
 

@@ -53,10 +53,10 @@ public static class GlassGlobeProjectBuilder
 
         BlueMarbleSurface blueMarble = globeObject.AddComponent<BlueMarbleSurface>();
         blueMarble.globe = globe;
-        blueMarble.springTexture = LoadBlueMarbleTexture("Spring");
-        blueMarble.summerTexture = LoadBlueMarbleTexture("Summer");
-        blueMarble.fallTexture = LoadBlueMarbleTexture("Fall");
-        blueMarble.winterTexture = LoadBlueMarbleTexture("Winter");
+        ConfigureBlueMarbleTexture("Spring");
+        ConfigureBlueMarbleTexture("Summer");
+        ConfigureBlueMarbleTexture("Fall");
+        ConfigureBlueMarbleTexture("Winter");
 
         GameObject gridRoot = new GameObject("Low Poly Earth Grid");
         gridRoot.transform.SetParent(root.transform, false);
@@ -380,20 +380,20 @@ public static class GlassGlobeProjectBuilder
     }
 
     /// <summary>
-    /// Loads one NASA Blue Marble seasonal map, first making sure it is
+    /// Configures one on-demand NASA Blue Marble seasonal map so it is
     /// imported the way the globe surface needs it: 4096x2048 with mipmaps,
-    /// no CPU copy, streaming on, longitude wrapping, and ASTC on Android.
+    /// no CPU copy, longitude wrapping, and ASTC on Android.
     /// Reimport only happens when something actually differs, so repeated
     /// scene builds stay fast.
     /// </summary>
-    private static Texture2D LoadBlueMarbleTexture(string season)
+    private static void ConfigureBlueMarbleTexture(string season)
     {
-        string path = GlassGlobeRoot + "/Textures/GlassGlobeBlueMarble" + season + ".jpg";
+        string path = GlassGlobeRoot + "/Resources/GlassGlobeBlueMarble" + season + ".jpg";
         TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
         if (importer == null)
         {
             Debug.LogWarning("GlassGlobeProjectBuilder: Blue Marble " + season + " texture not found at " + path + ".");
-            return null;
+            return;
         }
 
         TextureImporterPlatformSettings android = importer.GetPlatformTextureSettings("Android");
@@ -445,13 +445,6 @@ public static class GlassGlobeProjectBuilder
             Debug.Log("GlassGlobeProjectBuilder: reimported the Blue Marble " + season + " map at 4096x2048 with Android ASTC 6x6.");
         }
 
-        Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-        if (texture == null)
-        {
-            Debug.LogWarning("GlassGlobeProjectBuilder: could not load the Blue Marble " + season + " texture at " + path + ".");
-        }
-
-        return texture;
     }
 
     private static GameObject CreateSphereMarker(string name, float diameter, Material material, Transform parent)

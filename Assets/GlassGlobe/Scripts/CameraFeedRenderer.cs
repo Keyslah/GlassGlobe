@@ -8,15 +8,17 @@ using UnityEngine.Android;
 namespace GlassGlobe
 {
     /// <summary>
-    /// Controls only whether the live camera image is drawn. ARCameraManager stays
-    /// enabled for visual-inertial tracking even while the dedicated AR camera and
-    /// ARCameraBackground are hidden, leaving GlassGlobe's own sky visible.
+    /// Controls the optional live camera/AR session. The orientation sensors remain
+    /// available when this is off, so ARCore and its camera streams do not consume
+    /// power or graphics memory behind the normal globe view.
     /// </summary>
     [DefaultExecutionOrder(100)]
     public sealed class CameraFeedRenderer : MonoBehaviour
     {
         public Camera targetCamera;
         public PhonePoseSensors poseSensors;
+        public ARSession arSession;
+        public ARInputManager arInputManager;
         public Camera arTrackingCamera;
         public ARCameraManager arCameraManager;
         public ARCameraBackground arCameraBackground;
@@ -42,14 +44,20 @@ namespace GlassGlobe
         public bool FeedActive { get; private set; }
         public bool TrackingActive
         {
-            get { return arCameraManager != null && arCameraManager.enabled; }
+            get
+            {
+                return arSession != null &&
+                    arSession.enabled &&
+                    arCameraManager != null &&
+                    arCameraManager.enabled;
+            }
         }
         public string FeedStatus { get; private set; }
         public float ViewportFovDegrees
         {
             get
             {
-                if (FeedActive && arCameraManager != null)
+                if (usingArFeed && FeedActive && arCameraManager != null)
                 {
                     float baseFov = CurrentArBaseFovDegrees();
                     return feedDesiredFovInitialized
@@ -69,12 +77,12 @@ namespace GlassGlobe
         {
             get
             {
-                if (hasArProjectionMatrix)
+                if (usingArFeed && hasArProjectionMatrix)
                 {
                     return ProjectionVerticalFov(latestArProjectionMatrix);
                 }
 
-                if (arTrackingCamera != null)
+                if (usingArFeed && arTrackingCamera != null)
                 {
                     return ProjectionVerticalFov(arTrackingCamera.projectionMatrix);
                 }
@@ -88,6 +96,8 @@ namespace GlassGlobe
         private bool permissionRequested;
         private bool wantFeed;
         private bool devicesLogged;
+        private bool arUnavailableUntilNextRequest;
+        private bool usingArFeed;
         private CameraClearFlags savedTargetClearFlags;
         private bool targetRenderStateOverridden;
         private ARCameraManager subscribedCameraManager;
@@ -102,14 +112,10 @@ namespace GlassGlobe
 
         private void Awake()
         {
-            ResolveArReferences();
             wantFeed = startEnabledOnDevice;
             FeedStatus = "Off";
-
-            if (arCameraManager != null)
-            {
-                arCameraManager.enabled = true;
-            }
+            ResolveArReferences();
+            SetArTrackingActive(wantFeed);
 
             if (!Application.isMobilePlatform)
             {
@@ -131,13 +137,19 @@ namespace GlassGlobe
 
         private void OnDisable()
         {
+            SetArDisplayActive(false);
+            SetArTrackingActive(false);
+            SetFeedActive(false);
+            usingArFeed = false;
+            RestoreTargetRenderState();
             RestoreRawArDisplayTransform();
             UnsubscribeFromCameraFrames();
         }
 
         private void LateUpdate()
         {
-            if (!FeedActive ||
+            if (!usingArFeed ||
+                !FeedActive ||
                 arTrackingCamera == null ||
                 targetCamera == null)
             {
@@ -195,7 +207,7 @@ namespace GlassGlobe
 
         public void SetViewportFovDegrees(float value)
         {
-            if (FeedActive && arCameraManager != null)
+            if (usingArFeed && FeedActive && arCameraManager != null)
             {
                 Matrix4x4 baseProjection = hasArProjectionMatrix
                     ? latestArProjectionMatrix
@@ -235,6 +247,14 @@ namespace GlassGlobe
 
         public void SetFeedWanted(bool value)
         {
+            if (value && !wantFeed)
+            {
+                // A deliberate off/on toggle is the retry boundary after ARCore
+                // reports Unsupported. Do not hammer an ARSession that disables
+                // itself every frame.
+                arUnavailableUntilNextRequest = false;
+            }
+
             wantFeed = value;
             ResolveArReferences();
 
@@ -254,11 +274,34 @@ namespace GlassGlobe
 
         private void UpdateArFoundationDisplay()
         {
-            // Camera capture and tracking stay alive regardless of visibility.
-            if (!arCameraManager.enabled)
+            if (!wantFeed)
             {
-                arCameraManager.enabled = true;
+                usingArFeed = false;
+                SetArTrackingActive(false);
+                SetArDisplayActive(false);
+                SetFeedActive(false);
+                RestoreTargetRenderState();
+                FeedStatus = "Off";
+                StopLegacyFeed();
+                return;
             }
+
+            if (arUnavailableUntilNextRequest ||
+                ARSession.state == ARSessionState.Unsupported)
+            {
+                usingArFeed = false;
+                arUnavailableUntilNextRequest = true;
+                SetArDisplayActive(false);
+                SetArTrackingActive(false);
+                SetFeedActive(false);
+                RestoreTargetRenderState();
+                FeedStatus = "AR unsupported; using camera fallback";
+                UpdateLegacyWebCamDisplay();
+                return;
+            }
+
+            usingArFeed = true;
+            SetArTrackingActive(true);
 
             // Camera-on digital zoom uses ARCore's display transform. Stabilized
             // ARCore backgrounds bypass that transform, so keep stabilization off
@@ -270,12 +313,6 @@ namespace GlassGlobe
 
             bool displayReady =
                 arTrackingCamera != null && arCameraBackground != null;
-
-            if (arCameraBackground != null &&
-                arCameraBackground.enabled != wantFeed)
-            {
-                arCameraBackground.enabled = wantFeed;
-            }
 
             if (arTrackingCamera != null)
             {
@@ -289,11 +326,9 @@ namespace GlassGlobe
                     arTrackingCamera.targetDisplay = targetCamera.targetDisplay;
                 }
 
-                if (arTrackingCamera.enabled != wantFeed)
-                {
-                    arTrackingCamera.enabled = wantFeed;
-                }
             }
+
+            SetArDisplayActive(true);
 
             bool imageVisible = wantFeed && displayReady;
             SetFeedActive(imageVisible);
@@ -308,16 +343,7 @@ namespace GlassGlobe
             else
             {
                 RestoreTargetRenderState();
-                if (wantFeed)
-                {
-                    FeedStatus = "AR display unavailable; tracking active";
-                }
-                else
-                {
-                    FeedStatus = ARSession.state == ARSessionState.SessionTracking
-                        ? "AR tracking hidden"
-                        : "AR starting hidden";
-                }
+                FeedStatus = "AR display unavailable; tracking active";
             }
 
             // ARCore owns the camera hardware. Never start the competing legacy
@@ -371,6 +397,7 @@ namespace GlassGlobe
 
         private void UpdateLegacyWebCamDisplay()
         {
+            usingArFeed = false;
             if (!wantFeed)
             {
                 StopLegacyFeed();
@@ -425,6 +452,16 @@ namespace GlassGlobe
                 targetCamera = GetComponent<Camera>();
             }
 
+            if (arSession == null)
+            {
+                arSession = FindFirstObjectByType<ARSession>();
+            }
+
+            if (arInputManager == null && arSession != null)
+            {
+                arInputManager = arSession.GetComponent<ARInputManager>();
+            }
+
             if (arCameraManager == null)
             {
                 arCameraManager = FindFirstObjectByType<ARCameraManager>();
@@ -446,18 +483,76 @@ namespace GlassGlobe
 
         private void RefreshCameraFrameSubscription()
         {
-            if (subscribedCameraManager == arCameraManager)
+            ARCameraManager wantedManager =
+                wantFeed && arCameraManager != null && arCameraManager.enabled
+                    ? arCameraManager
+                    : null;
+
+            if (subscribedCameraManager == wantedManager)
             {
                 return;
             }
 
             UnsubscribeFromCameraFrames();
-            subscribedCameraManager = arCameraManager;
+            subscribedCameraManager = wantedManager;
             hasArProjectionMatrix = false;
             hasArDisplayMatrix = false;
             if (subscribedCameraManager != null)
             {
                 subscribedCameraManager.frameReceived += OnCameraFrameReceived;
+            }
+        }
+
+        private void SetArTrackingActive(bool active)
+        {
+            if (active)
+            {
+                if (arInputManager != null && !arInputManager.enabled)
+                {
+                    arInputManager.enabled = true;
+                }
+
+                if (arSession != null && !arSession.enabled)
+                {
+                    arSession.enabled = true;
+                }
+
+                if (arCameraManager != null && !arCameraManager.enabled)
+                {
+                    arCameraManager.enabled = true;
+                }
+            }
+            else
+            {
+                if (arCameraManager != null && arCameraManager.enabled)
+                {
+                    arCameraManager.enabled = false;
+                }
+
+                if (arSession != null && arSession.enabled)
+                {
+                    arSession.enabled = false;
+                }
+
+                if (arInputManager != null && arInputManager.enabled)
+                {
+                    arInputManager.enabled = false;
+                }
+            }
+
+            RefreshCameraFrameSubscription();
+        }
+
+        private void SetArDisplayActive(bool active)
+        {
+            if (arCameraBackground != null && arCameraBackground.enabled != active)
+            {
+                arCameraBackground.enabled = active;
+            }
+
+            if (arTrackingCamera != null && arTrackingCamera.enabled != active)
+            {
+                arTrackingCamera.enabled = active;
             }
         }
 

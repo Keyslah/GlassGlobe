@@ -84,6 +84,8 @@ namespace GlassGlobe
         private const string SatellitesKey = Prefix + "Satellites";
         private const string EarthquakesKey = Prefix + "Earthquakes";
         private const string HeadingFineOffsetKey = Prefix + "HeadingFineOffsetV4";
+        private const string HeadingCalibrationActiveKey =
+            Prefix + "HeadingCalibrationActiveV1";
         private const string LegacyHeadingOffsetKey = Prefix + "HeadingOffsetV3";
         private const string LegacyManualHeadingKey = Prefix + "ManualHeadingCalibrationV3";
         private const string ViewpointCategoryKey = Prefix + "Category.Viewpoint";
@@ -148,6 +150,7 @@ namespace GlassGlobe
         public static bool SatellitesEnabled { get; private set; }
         public static bool EarthquakesEnabled { get; private set; }
         public static float HeadingFineOffsetDegrees { get; private set; }
+        public static bool HeadingCalibrationActive { get; private set; }
         public static bool ViewpointCategoryEnabled { get; private set; }
         public static bool BackgroundCategoryEnabled { get; private set; }
         public static bool DisplayCategoryEnabled { get; private set; }
@@ -349,6 +352,7 @@ namespace GlassGlobe
             new PrefEntry(SatellitesKey, PrefKind.Number),
             new PrefEntry(EarthquakesKey, PrefKind.Number),
             new PrefEntry(HeadingFineOffsetKey, PrefKind.Decimal, false),
+            new PrefEntry(HeadingCalibrationActiveKey, PrefKind.Number, false),
             new PrefEntry(LegacyHeadingOffsetKey, PrefKind.Decimal, false),
             new PrefEntry(LegacyManualHeadingKey, PrefKind.Number, false),
             new PrefEntry(ViewpointCategoryKey, PrefKind.Number),
@@ -619,6 +623,9 @@ namespace GlassGlobe
             SatellitesEnabled = ReadBool(SatellitesKey, true);
             EarthquakesEnabled = ReadBool(EarthquakesKey, false);
             HeadingFineOffsetDegrees = ReadHeadingFineOffset();
+            HeadingCalibrationActive = ReadBool(
+                HeadingCalibrationActiveKey,
+                Mathf.Abs(HeadingFineOffsetDegrees) > 0.001f);
             ViewpointCategoryEnabled = ReadBool(ViewpointCategoryKey, true);
             BackgroundCategoryEnabled = ReadBool(BackgroundCategoryKey, true);
             DisplayCategoryEnabled = ReadBool(DisplayCategoryKey, true);
@@ -923,6 +930,13 @@ namespace GlassGlobe
 
             HeadingFineOffsetDegrees = Mathf.Repeat(offsetDegrees + 180f, 360f) - 180f;
             WriteFloat(HeadingFineOffsetKey, HeadingFineOffsetDegrees);
+        }
+
+        public static void SetHeadingCalibrationActive(bool value)
+        {
+            Load();
+            HeadingCalibrationActive = value;
+            WriteBool(HeadingCalibrationActiveKey, value);
         }
 
         public static void SetViewpointCategoryEnabled(bool value)

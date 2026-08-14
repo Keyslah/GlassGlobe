@@ -43,6 +43,13 @@ namespace GlassGlobe
         private int trackedTouchFingerId = -1;
         private Vector2 touchStartScreenPoint;
         private bool touchDragged;
+        private int viewedTargetCacheFrame = -1;
+        private FarSideRaycaster viewedTargetCacheRaycaster;
+        private CountryBorderRenderer viewedTargetCacheBorderRenderer;
+        private bool viewedTargetCacheHasIntersection;
+        private GeoCoordinate viewedTargetCacheCoordinate;
+        private string viewedTargetCacheCoordinateText = "No sphere intersection";
+        private string viewedTargetCacheRegion = "Unknown";
         private GlassGlobePortraitUi.Rotation lastUiRotation =
             GlassGlobePortraitUi.Rotation.Portrait;
 
@@ -161,19 +168,55 @@ namespace GlassGlobe
 
         private string GetViewedCountryName()
         {
+            RefreshViewedTargetCache();
+            if (!viewedTargetCacheHasIntersection || borderRenderer == null)
+            {
+                return "Unknown";
+            }
+
+            string name = viewedTargetCacheRegion;
+            return name.StartsWith("Nearest: ") ? name.Substring(9) : name;
+        }
+
+        private void RefreshViewedTargetCache()
+        {
+            int frame = Time.frameCount;
+            if (viewedTargetCacheFrame == frame &&
+                viewedTargetCacheRaycaster == farSideRaycaster &&
+                viewedTargetCacheBorderRenderer == borderRenderer)
+            {
+                return;
+            }
+
+            viewedTargetCacheFrame = frame;
+            viewedTargetCacheRaycaster = farSideRaycaster;
+            viewedTargetCacheBorderRenderer = borderRenderer;
+            viewedTargetCacheHasIntersection = false;
+            viewedTargetCacheCoordinateText = "No sphere intersection";
+            viewedTargetCacheRegion = "Unknown";
+
             if (farSideRaycaster == null)
             {
-                return "Unknown";
+                return;
             }
 
+            // OnGUI can run Layout, input, and Repaint passes in one frame. Take
+            // one snapshot so the banner and readout share a single raycast and
+            // at most one exact region query for that rendered frame.
             farSideRaycaster.UpdateRaycast();
-            if (!farSideRaycaster.HasIntersection || borderRenderer == null)
+            if (!farSideRaycaster.HasIntersection)
             {
-                return "Unknown";
+                return;
             }
 
-            string name = borderRenderer.GetRegionForCoordinate(farSideRaycaster.FarSideCoordinate);
-            return name.StartsWith("Nearest: ") ? name.Substring(9) : name;
+            viewedTargetCacheHasIntersection = true;
+            viewedTargetCacheCoordinate = farSideRaycaster.FarSideCoordinate;
+            viewedTargetCacheCoordinateText = viewedTargetCacheCoordinate.ToString();
+            if (borderRenderer != null)
+            {
+                viewedTargetCacheRegion =
+                    borderRenderer.GetRegionForCoordinate(viewedTargetCacheCoordinate);
+            }
         }
 
         private bool SensorModeActive()
@@ -413,7 +456,7 @@ namespace GlassGlobe
                 return false;
             }
 
-            alignmentStatusText = (poseSensors.ArNorthLockActive ? "ARCore north locked: " : "Gyro north locked: ") +
+            alignmentStatusText = "Sensor north locked: " +
                 correctionDegrees.ToString("+0.0;-0.0;0.0") + " deg";
             alignmentStatusUntil = Time.unscaledTime + 3f;
             Debug.Log("GlassGlobeHUD: north locked; correction=" +
@@ -773,6 +816,11 @@ namespace GlassGlobe
             {
                 farSideRaycaster.UpdateRaycast();
             }
+
+            // Simulator sliders can change the ray after the banner's first
+            // OnGUI pass. Let a later pass in the same frame take a fresh HUD
+            // snapshot instead of holding the pre-input value for one frame.
+            viewedTargetCacheFrame = -1;
         }
 
         private string BuildReadout()
@@ -785,18 +833,11 @@ namespace GlassGlobe
             string targetText = "No sphere intersection";
             string regionText = "Unknown";
 
-            if (farSideRaycaster != null)
+            RefreshViewedTargetCache();
+            if (viewedTargetCacheHasIntersection)
             {
-                farSideRaycaster.UpdateRaycast();
-                if (farSideRaycaster.HasIntersection)
-                {
-                    GeoCoordinate target = farSideRaycaster.FarSideCoordinate;
-                    targetText = target.ToString();
-                    if (borderRenderer != null)
-                    {
-                        regionText = borderRenderer.GetRegionForCoordinate(target);
-                    }
-                }
+                targetText = viewedTargetCacheCoordinateText;
+                regionText = viewedTargetCacheRegion;
             }
 
             StringBuilder readout = new StringBuilder();
@@ -837,18 +878,11 @@ namespace GlassGlobe
             string targetText = "No sphere intersection";
             string regionText = "Unknown";
 
-            if (farSideRaycaster != null)
+            RefreshViewedTargetCache();
+            if (viewedTargetCacheHasIntersection)
             {
-                farSideRaycaster.UpdateRaycast();
-                if (farSideRaycaster.HasIntersection)
-                {
-                    GeoCoordinate target = farSideRaycaster.FarSideCoordinate;
-                    targetText = target.ToString();
-                    if (borderRenderer != null)
-                    {
-                        regionText = borderRenderer.GetRegionForCoordinate(target);
-                    }
-                }
+                targetText = viewedTargetCacheCoordinateText;
+                regionText = viewedTargetCacheRegion;
             }
 
             string feedText = cameraFeed != null ? cameraFeed.FeedStatus : "n/a";
