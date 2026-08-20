@@ -66,7 +66,8 @@ namespace GlassGlobe
         private void Awake()
         {
             GlassGlobeSettingsState.Load();
-            bool categoryEnabled = GlassGlobeSettingsState.EarthStylesCategoryEnabled;
+            bool categoryEnabled = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                GlassGlobeSettingsState.GlobeSurface != GlobeSurfaceMode.BlueMarble;
             WaterVisible = categoryEnabled && GlassGlobeSettingsState.WaterArtEnabled;
             LandVisible = categoryEnabled && GlassGlobeSettingsState.LandArtEnabled;
             OceanVisible = categoryEnabled && GlassGlobeSettingsState.OceanArtEnabled;

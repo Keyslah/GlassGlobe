@@ -174,7 +174,7 @@ namespace GlassGlobe
             get
             {
                 Load();
-                return BackgroundCategoryEnabled && GlobeSurface == GlobeSurfaceMode.BlueMarble;
+                return DisplayCategoryEnabled && GlobeSurface == GlobeSurfaceMode.BlueMarble;
             }
         }
 
@@ -191,8 +191,10 @@ namespace GlassGlobe
         {
             get
             {
-                Load();
-                return PrivacyCategoryEnabled && HideUserCoordinates;
+                // The in-app privacy controls were retired. Legacy preferences
+                // must not leave readouts hidden with no UI available to restore
+                // them.
+                return false;
             }
         }
 
@@ -200,8 +202,7 @@ namespace GlassGlobe
         {
             get
             {
-                Load();
-                return PrivacyCategoryEnabled && HideFarSideCoordinates;
+                return false;
             }
         }
 
@@ -209,8 +210,7 @@ namespace GlassGlobe
         {
             get
             {
-                Load();
-                return PrivacyCategoryEnabled && HideLocationAccuracy;
+                return false;
             }
         }
 
@@ -218,8 +218,7 @@ namespace GlassGlobe
         {
             get
             {
-                Load();
-                return PrivacyCategoryEnabled && HideViewedRegion;
+                return false;
             }
         }
 
@@ -227,8 +226,7 @@ namespace GlassGlobe
         {
             get
             {
-                Load();
-                return !PrivacyCategoryEnabled || ShowViewedFromName;
+                return true;
             }
         }
 
@@ -580,9 +578,9 @@ namespace GlassGlobe
             CountryBannerVisible = ReadBool(CountryBannerKey, true);
             CountryOutlineColor = ReadColor(CountryOutlineColorKey, new Color(0.25f, 1f, 0.4f, 1f));
             GridColor = ReadColor(GridColorKey, new Color(0.15f, 0.88f, 1f, 0.95f));
-            GridVisible = ReadBool(GridVisibleKey, true);
+            GridVisible = ReadBool(GridVisibleKey, false);
             CountryOutlineThickness = Mathf.Clamp(
-                PlayerPrefs.GetFloat(CountryOutlineThicknessKey, DefaultCountryOutlineThickness), 0f, 3f);
+                PlayerPrefs.GetFloat(CountryOutlineThicknessKey, 0f), 0f, 3f);
             GridThickness = Mathf.Clamp(PlayerPrefs.GetFloat(GridThicknessKey, 0.25f), 0.25f, 3f);
             ShowSetNorthButton = ReadBool(ShowSetNorthButtonKey, false);
             HideUserCoordinates = ReadBool(HideUserCoordinatesKey, false);
@@ -599,7 +597,7 @@ namespace GlassGlobe
             SunEnabled = ReadBool(SunKey, true);
             MoonEnabled = ReadBool(MoonKey, true);
             GlobeSurface = (GlobeSurfaceMode)Mathf.Clamp(
-                PlayerPrefs.GetInt(GlobeSurfaceModeKey, (int)GlobeSurfaceMode.BlueMoon),
+                PlayerPrefs.GetInt(GlobeSurfaceModeKey, (int)GlobeSurfaceMode.BlueMarble),
                 (int)GlobeSurfaceMode.BlueMoon,
                 (int)GlobeSurfaceMode.BlueMarble);
             BlueMarbleSeasonChoice = (BlueMarbleSeason)Mathf.Clamp(

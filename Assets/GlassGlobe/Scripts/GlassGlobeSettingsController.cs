@@ -38,14 +38,10 @@ namespace GlassGlobe
             Closed,
             Settings,
             Viewpoint,
-            Background,
             Display,
-            EarthStyles,
-            Weather,
             LiveData,
             Orient,
-            OrientCapture,
-            Privacy
+            OrientCapture
         }
 
         private enum AlignBody
@@ -108,6 +104,7 @@ namespace GlassGlobe
         private GUIStyle bodyStyle;
         private GUIStyle statusStyle;
         private GUIStyle buttonStyle;
+        private GUIStyle primaryButtonStyle;
         private GUIStyle seasonButtonStyle;
         private GUIStyle entryButtonStyle;
         private Rect activeAreaRect;
@@ -521,18 +518,10 @@ namespace GlassGlobe
                 case SettingsPage.Viewpoint:
                     GlassGlobeSettingsState.SetViewpointCategoryEnabled(value);
                     break;
-                case SettingsPage.Background:
-                    GlassGlobeSettingsState.SetBackgroundCategoryEnabled(value);
-                    break;
                 case SettingsPage.Display:
                     GlassGlobeSettingsState.SetDisplayCategoryEnabled(value);
-                    break;
-                case SettingsPage.EarthStyles:
-                    GlassGlobeSettingsState.SetEarthStylesCategoryEnabled(value);
-                    break;
-                case SettingsPage.Weather:
-                    GlassGlobeSettingsState.SetWeatherCategoryEnabled(value);
-                    break;
+                    PushEverySettingToScene();
+                    return;
                 case SettingsPage.LiveData:
                     GlassGlobeSettingsState.SetLiveDataCategoryEnabled(value);
                     break;
@@ -541,9 +530,6 @@ namespace GlassGlobe
                     orientStatusMessage = value
                         ? "Orient settings restored."
                         : "Orient settings disabled; your alignment is saved.";
-                    break;
-                case SettingsPage.Privacy:
-                    GlassGlobeSettingsState.SetPrivacyCategoryEnabled(value);
                     break;
                 default:
                     return;
@@ -598,6 +584,11 @@ namespace GlassGlobe
             {
                 GlassGlobeSettingsState.SetGlobeSurface(mode);
                 MarkBlueMarbleDirty();
+                earthArtSettingsDirty = true;
+                weatherCloudsSettingApplied = false;
+                weatherRadarSettingApplied = false;
+                ApplyEarthArtSettings();
+                ApplyWeatherSettings();
             }
             finally
             {
@@ -920,7 +911,7 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desiredSun = GlassGlobeSettingsState.BackgroundCategoryEnabled &&
+            bool desiredSun = GlassGlobeSettingsState.DisplayCategoryEnabled &&
                 GlassGlobeSettingsState.SunEnabled;
             if (!sunSettingApplied || appliedSunSetting != desiredSun)
             {
@@ -929,7 +920,7 @@ namespace GlassGlobe
                 sunSettingApplied = true;
             }
 
-            bool desiredMoon = GlassGlobeSettingsState.BackgroundCategoryEnabled &&
+            bool desiredMoon = GlassGlobeSettingsState.DisplayCategoryEnabled &&
                 GlassGlobeSettingsState.MoonEnabled;
             if (!moonSettingApplied || appliedMoonSetting != desiredMoon)
             {
@@ -946,7 +937,10 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desiredClouds = GlassGlobeSettingsState.WeatherCategoryEnabled &&
+            bool overlaysCompatible =
+                GlassGlobeSettingsState.GlobeSurface != GlobeSurfaceMode.BlueMarble;
+            bool desiredClouds = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                overlaysCompatible &&
                 GlassGlobeSettingsState.WeatherCloudsEnabled;
             if (!weatherCloudsSettingApplied || appliedWeatherCloudsSetting != desiredClouds)
             {
@@ -955,7 +949,8 @@ namespace GlassGlobe
                 weatherCloudsSettingApplied = true;
             }
 
-            bool desiredRadar = GlassGlobeSettingsState.WeatherCategoryEnabled &&
+            bool desiredRadar = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                overlaysCompatible &&
                 GlassGlobeSettingsState.WeatherRadarEnabled;
             if (!weatherRadarSettingApplied || appliedWeatherRadarSetting != desiredRadar)
             {
@@ -999,7 +994,7 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desired = GlassGlobeSettingsState.BackgroundCategoryEnabled &&
+            bool desired = GlassGlobeSettingsState.DisplayCategoryEnabled &&
                 GlassGlobeSettingsState.MilkyWayEnabled;
             if (milkyWaySettingApplied && appliedMilkyWaySetting == desired)
             {
@@ -1018,7 +1013,8 @@ namespace GlassGlobe
                 return;
             }
 
-            bool categoryEnabled = GlassGlobeSettingsState.EarthStylesCategoryEnabled;
+            bool categoryEnabled = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                GlassGlobeSettingsState.GlobeSurface != GlobeSurfaceMode.BlueMarble;
             earthArt.SetWaterVisible(categoryEnabled && GlassGlobeSettingsState.WaterArtEnabled);
             earthArt.SetLandVisible(categoryEnabled && GlassGlobeSettingsState.LandArtEnabled);
             earthArt.SetOceanVisible(categoryEnabled && GlassGlobeSettingsState.OceanArtEnabled);
@@ -1050,9 +1046,9 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desiredNight = GlassGlobeSettingsState.EarthStylesCategoryEnabled &&
+            bool desiredNight = GlassGlobeSettingsState.DisplayCategoryEnabled &&
                 GlassGlobeSettingsState.NightLightsEnabled;
-            bool desiredRim = GlassGlobeSettingsState.EarthStylesCategoryEnabled &&
+            bool desiredRim = GlassGlobeSettingsState.DisplayCategoryEnabled &&
                 GlassGlobeSettingsState.RimGlowEnabled;
             if (nightLightsSettingApplied && appliedNightLightsSetting == desiredNight &&
                 rimGlowSettingApplied && appliedRimGlowSetting == desiredRim)

@@ -8,13 +8,26 @@ namespace GlassGlobe
 {
     /// <summary>
     /// Drives the phone viewport from GPS plus a continuous sensor orientation.
-    /// Android's earth-referenced rotation vector owns orientation continuously.
-    /// The native bridge timestamps every pose so a cached sample cannot masquerade
-    /// as live orientation. AR is camera-only and never owns the view.
+    /// Android's magnetometer-free game rotation vector owns continuous motion.
+    /// A separately timestamped earth vector is used only to validate and lock a
+    /// fixed north yaw. AR is camera-only and never owns the view.
     /// </summary>
     public sealed class PhonePoseSensors : MonoBehaviour
     {
         private const float EarthRotationRestartDelaySeconds = 2f;
+        private const float MotionTraceIntervalSeconds = 1f;
+        private const float NorthReferenceStabilitySeconds = 0.35f;
+        private const int NorthReferenceMinimumSamples = 8;
+        private const float NorthReferenceMaximumJitterDegrees = 1.5f;
+        private const float NorthReferenceMaximumAgeSkewSeconds = 0.05f;
+        private const float NorthReferenceMaximumAccuracyDegrees = 45f;
+        private const float TrueNorthStabilitySeconds = 0.5f;
+        private const int TrueNorthMinimumSamples = 10;
+        private const float TrueNorthMaximumJitterDegrees = 0.5f;
+        private const float DisplaySnapThresholdDegrees = 0.005f;
+        private const float FineMotionSmoothing = 0.86f;
+        private const float FineMotionFullStrengthDegrees = 0.1f;
+        private const float ResponsiveMotionErrorDegrees = 1.5f;
 
         public PhonePoseSimulator simulator;
         public GlobeRenderer globe;
@@ -39,7 +52,7 @@ namespace GlassGlobe
         [Tooltip("Fixed world-up yaw calibration, degrees.")]
         public float headingOffsetDegrees = 0f;
 
-        [Tooltip("Seconds for the slow compass alignment filter.")]
+        [Tooltip("Legacy serialized value. Compass correction is now captured once instead of interpolated continuously.")]
         public float compassAlignSeconds = 15f;
 
         [Tooltip("Log sensor state (including GPS coordinates) to the system log once per second. Keep off for privacy outside debugging sessions.")]
@@ -112,10 +125,45 @@ namespace GlassGlobe
         private int lastEarthRotationUpdateFrame = -1;
         private float currentEarthHeadingAccuracyDegrees = -1f;
         private float nextEarthRotationRestartTime;
+        private int currentProviderEpoch = -1;
+        private bool providerUsesGameRotation;
+        private bool fixedNorthReferenceActive;
+        private float fixedNorthYawDegrees;
+        private bool northReferenceCandidateActive;
+        private float northReferenceCandidateYawDegrees;
+        private float northReferenceCandidateStartTime;
+        private int northReferenceCandidateSamples;
+        private bool trueNorthCandidateActive;
+        private float trueNorthCandidateDegrees;
+        private float trueNorthCandidateStartTime;
+        private int trueNorthCandidateSamples;
         private bool sensorNorthLockActive;
         private Quaternion smoothedRotation = Quaternion.identity;
         private bool hasSmoothedRotation;
         private float lastLogTime;
+        private float traceRawDeltaDegrees;
+        private float traceRawTravelDegrees;
+        private float traceMotionHeadingDegrees = float.NaN;
+        private float traceEarthHeadingDegrees = float.NaN;
+        private float traceLiveNorthYawDegrees = float.NaN;
+        private float traceLiveNorthDeltaDegrees = float.NaN;
+        private float traceMappedToEarthAngleDegrees = float.NaN;
+        private float traceEarthHeadingAccuracyDegrees = float.NaN;
+        private Quaternion tracePreviousRawRotation = Quaternion.identity;
+        private bool traceHasPreviousRawRotation;
+        private float traceCompassDeltaDegrees;
+        private float traceCompassTravelDegrees;
+        private float traceDesiredCompassCorrectionDegrees = float.NaN;
+        private Quaternion tracePreviousTargetRotation = Quaternion.identity;
+        private bool traceHasPreviousTargetRotation;
+        private float traceTargetDeltaDegrees;
+        private float traceTargetTravelDegrees;
+        private Quaternion tracePreviousDisplayedRotation = Quaternion.identity;
+        private bool traceHasPreviousDisplayedRotation;
+        private float traceDisplayedDeltaDegrees;
+        private float traceDisplayedTravelDegrees;
+        private float traceDisplayErrorDegrees;
+        private float traceDisplayBlendFactor;
         private float nextLocationRestartTime;
         private MilkyWayBackground milkyWayBackground;
         private SunMoonBackground sunMoonBackground;
@@ -194,29 +242,77 @@ namespace GlassGlobe
                 return;
             }
 
+            traceRawDeltaDegrees = 0f;
+            traceMotionHeadingDegrees = float.NaN;
+            traceEarthHeadingDegrees = float.NaN;
+            traceLiveNorthYawDegrees = float.NaN;
+            traceLiveNorthDeltaDegrees = float.NaN;
+            traceMappedToEarthAngleDegrees = float.NaN;
+            traceEarthHeadingAccuracyDegrees = float.NaN;
+            traceCompassDeltaDegrees = 0f;
+            traceDesiredCompassCorrectionDegrees = float.NaN;
+            traceTargetDeltaDegrees = 0f;
+            traceDisplayedDeltaDegrees = 0f;
+            traceDisplayErrorDegrees = 0f;
+            traceDisplayBlendFactor = 0f;
             UpdateLocation();
             UpdateAttitudeAndPose();
 
-            if (verboseLogging && Time.time - lastLogTime > 1f)
+            if (verboseLogging &&
+                Time.unscaledTime - lastLogTime >= MotionTraceIntervalSeconds)
             {
-                lastLogTime = Time.time;
-                Debug.Log(string.Format(
-                    "GlassGlobeSensors: fix={0} acc={1:0.0}m user={2} heading={3:0.0} tilt={4:0.0} rawHeading={5:0.0} compassTrue={6:0.0} compassAcc={7:0.0} corr={8:0.0} offset={9:0.0} earthFresh={10} arAvailable={11} arFresh={12} source={13} orientation={14}",
-                    HasLocationFix,
-                    LocationAccuracyMeters,
-                    CurrentCoordinate,
-                    HeadingDegrees,
-                    TiltDegrees,
-                    AttitudeHeadingRawDegrees,
-                    CompassTrueHeadingDegrees,
-                    CompassAccuracyDegrees,
-                    CompassCorrectionDegrees,
-                    ActiveHeadingCorrectionDegrees,
-                    EarthRotationFresh,
-                    ArTrackingAvailable,
-                    ArTrackingFresh,
-                    ActiveOrientationSource,
-                    OrientationStatus));
+                lastLogTime = Time.unscaledTime;
+                float sampleAgeMilliseconds = earthRotationVector != null
+                    ? earthRotationVector.LastSampleAgeSeconds * 1000f
+                    : float.PositiveInfinity;
+                float referenceAgeMilliseconds = earthRotationVector != null
+                    ? earthRotationVector.LastReferenceSampleAgeSeconds * 1000f
+                    : float.PositiveInfinity;
+                int startAttempts = earthRotationVector != null
+                    ? earthRotationVector.StartAttemptCount
+                    : 0;
+                int successfulStarts = earthRotationVector != null
+                    ? earthRotationVector.SuccessfulStartCount
+                    : 0;
+                Debug.Log(
+                    $"GlassGlobeMotionTrace: t={Time.unscaledTime:0.000} " +
+                    $"source={ActiveOrientationSource} fresh={EarthRotationFresh} " +
+                    $"sampleAgeMs={sampleAgeMilliseconds:0.0} " +
+                    $"referenceAgeMs={referenceAgeMilliseconds:0.0} " +
+                    $"rawDelta={traceRawDeltaDegrees:0.000} " +
+                    $"rawTravel={traceRawTravelDegrees:0.000} " +
+                    $"motionHeading={traceMotionHeadingDegrees:0.000} " +
+                    $"earthHeading={traceEarthHeadingDegrees:0.000} " +
+                    $"liveNorthYaw={traceLiveNorthYawDegrees:0.000} " +
+                    $"liveNorthDelta={traceLiveNorthDeltaDegrees:0.000} " +
+                    $"mappedVsEarth={traceMappedToEarthAngleDegrees:0.000} " +
+                    $"earthAccuracy={traceEarthHeadingAccuracyDegrees:0.000} " +
+                    $"compass={CompassCorrectionDegrees:0.000} " +
+                    $"desiredCompass={traceDesiredCompassCorrectionDegrees:0.000} " +
+                    $"compassDelta={traceCompassDeltaDegrees:0.000} " +
+                    $"compassTravel={traceCompassTravelDegrees:0.000} " +
+                    $"targetDelta={traceTargetDeltaDegrees:0.000} " +
+                    $"targetTravel={traceTargetTravelDegrees:0.000} " +
+                    $"displayedDelta={traceDisplayedDeltaDegrees:0.000} " +
+                    $"displayedTravel={traceDisplayedTravelDegrees:0.000} " +
+                    $"displayError={traceDisplayErrorDegrees:0.000} " +
+                    $"displayBlend={traceDisplayBlendFactor:0.000} " +
+                    $"startAttempts={startAttempts} successfulStarts={successfulStarts} " +
+                    $"epoch={currentProviderEpoch} usesGame={providerUsesGameRotation} " +
+                    $"fixedNorth={fixedNorthReferenceActive} " +
+                    $"fixedYaw={fixedNorthYawDegrees:0.000} " +
+                    $"manualYaw={headingOffsetDegrees:0.000} " +
+                    $"attitudeHeading={AttitudeHeadingRawDegrees:0.000} " +
+                    $"compassTrue={Input.compass.trueHeading:0.000} " +
+                    $"compassMagnetic={Input.compass.magneticHeading:0.000} " +
+                    $"compassAccuracy={CompassAccuracyDegrees:0.000} " +
+                    $"setNorth={sensorNorthLockActive} arOwnsOrientation=false " +
+                    $"status={OrientationStatus}");
+
+                traceRawTravelDegrees = 0f;
+                traceCompassTravelDegrees = 0f;
+                traceTargetTravelDegrees = 0f;
+                traceDisplayedTravelDegrees = 0f;
             }
         }
 
@@ -239,7 +335,8 @@ namespace GlassGlobe
                 HasAttitude = false;
                 currentEarthDisplayRotation = -1;
                 lastEarthRotationUpdateFrame = -1;
-                hasSmoothedRotation = false;
+                currentProviderEpoch = -1;
+                ResetNorthReferenceCapture();
                 ActiveOrientationSource = "Paused";
                 OrientationStatus = sensorNorthLockActive
                     ? "Orientation paused; sensor north calibration retained"
@@ -414,6 +511,7 @@ namespace GlassGlobe
             float candidateOffsetDegrees,
             string sensorSource)
         {
+            float previousHeadingOffsetDegrees = headingOffsetDegrees;
             // All validation happens before this method. Commit the persistent
             // sensor calibration first, then give optional AR the resulting live
             // pose as its rebase target. A failed/inactive AR session cannot undo
@@ -429,9 +527,21 @@ namespace GlassGlobe
                 candidateOffsetDegrees + capturedAutomaticCorrection);
             CompassCorrectionDegrees = 0f;
             compassCorrectionInitialized = true;
+            trueNorthCandidateActive = false;
+            trueNorthCandidateSamples = 0;
             GlassGlobeSettingsState.SetHeadingFineOffset(headingOffsetDegrees);
             GlassGlobeSettingsState.SetHeadingCalibrationActive(true);
             sensorNorthLockActive = true;
+
+            if (verboseLogging)
+            {
+                Debug.Log(
+                    $"GlassGlobeNorthCalibrationTrace: source={sensorSource} " +
+                    $"manualBefore={previousHeadingOffsetDegrees:0.000} " +
+                    $"candidateManual={candidateOffsetDegrees:0.000} " +
+                    $"capturedAutomatic={capturedAutomaticCorrection:0.000} " +
+                    $"manualAfter={headingOffsetDegrees:0.000}");
+            }
 
             Quaternion calibratedDeviceInEnu =
                 Quaternion.AngleAxis(candidateOffsetDegrees, Vector3.up) *
@@ -457,6 +567,8 @@ namespace GlassGlobe
             GlassGlobeSettingsState.SetHeadingCalibrationActive(false);
             CompassCorrectionDegrees = 0f;
             compassCorrectionInitialized = false;
+            trueNorthCandidateActive = false;
+            trueNorthCandidateSamples = 0;
 
             if (arCoreTracking != null)
             {
@@ -626,19 +738,73 @@ namespace GlassGlobe
 
             Quaternion enuToWorld = Quaternion.LookRotation(frame.North, frame.Up);
             Quaternion targetRotation = enuToWorld * deviceInEnu;
+            traceTargetDeltaDegrees = traceHasPreviousTargetRotation
+                ? Quaternion.Angle(tracePreviousTargetRotation, targetRotation)
+                : 0f;
+            traceTargetTravelDegrees += traceTargetDeltaDegrees;
+            tracePreviousTargetRotation = targetRotation;
+            traceHasPreviousTargetRotation = true;
 
             if (!hasSmoothedRotation)
             {
                 smoothedRotation = targetRotation;
                 hasSmoothedRotation = true;
+                traceDisplayBlendFactor = 1f;
             }
             else
             {
-                smoothedRotation = Quaternion.Slerp(
+                float displayErrorDegrees = Quaternion.Angle(
                     smoothedRotation,
-                    targetRotation,
-                    1f - Mathf.Pow(attitudeSmoothing, Time.deltaTime * 60f));
+                    targetRotation);
+                traceDisplayErrorDegrees = displayErrorDegrees;
+                if (displayErrorDegrees <= DisplaySnapThresholdDegrees)
+                {
+                    smoothedRotation = targetRotation;
+                    traceDisplayBlendFactor = 1f;
+                }
+                else
+                {
+                    float baseSmoothing = Mathf.Clamp(
+                        attitudeSmoothing,
+                        0.001f,
+                        0.999f);
+                    float fineSmoothing = Mathf.Max(
+                        baseSmoothing,
+                        FineMotionSmoothing);
+                    float response = Mathf.SmoothStep(
+                        0f,
+                        1f,
+                        Mathf.InverseLerp(
+                            FineMotionFullStrengthDegrees,
+                            ResponsiveMotionErrorDegrees,
+                            displayErrorDegrees));
+                    float adaptiveSmoothing = Mathf.Lerp(
+                        fineSmoothing,
+                        baseSmoothing,
+                        response);
+                    float blendFactor = 1f - Mathf.Pow(
+                        adaptiveSmoothing,
+                        Time.deltaTime * 60f);
+                    smoothedRotation = Quaternion.Slerp(
+                        smoothedRotation,
+                        targetRotation,
+                        blendFactor);
+                    traceDisplayBlendFactor = blendFactor;
+                    if (Quaternion.Angle(
+                            smoothedRotation,
+                            targetRotation) <= DisplaySnapThresholdDegrees)
+                    {
+                        smoothedRotation = targetRotation;
+                    }
+                }
             }
+
+            traceDisplayedDeltaDegrees = traceHasPreviousDisplayedRotation
+                ? Quaternion.Angle(tracePreviousDisplayedRotation, smoothedRotation)
+                : 0f;
+            traceDisplayedTravelDegrees += traceDisplayedDeltaDegrees;
+            tracePreviousDisplayedRotation = smoothedRotation;
+            traceHasPreviousDisplayedRotation = true;
 
             transform.SetPositionAndRotation(observerPosition, smoothedRotation);
             targetCamera.transform.SetPositionAndRotation(observerPosition, smoothedRotation);
@@ -676,7 +842,9 @@ namespace GlassGlobe
                         CompassCorrectionDegrees,
                         Vector3.up) *
                     deviceInEnu;
-                sensorSource = "Timestamped earth-referenced rotation vector";
+                sensorSource = providerUsesGameRotation
+                    ? "Timestamped game rotation + fixed north reference"
+                    : "Timestamped earth rotation fallback";
             }
             else if (EarthRotationAvailable)
             {
@@ -787,13 +955,8 @@ namespace GlassGlobe
             }
 
             EarthRotationAvailable = earthRotationVector.IsSupported;
-            Quaternion nextRotation;
-            int displayRotation;
-            float headingAccuracyDegrees;
             if (!earthRotationVector.TryGetRotation(
-                    out nextRotation,
-                    out displayRotation,
-                    out headingAccuracyDegrees))
+                    out AndroidRotationVectorSample sample))
             {
                 if (Time.unscaledTime >= nextEarthRotationRestartTime)
                 {
@@ -801,6 +964,8 @@ namespace GlassGlobe
                         Time.unscaledTime + EarthRotationRestartDelaySeconds;
                     earthRotationVector.Stop();
                     EarthRotationAvailable = earthRotationVector.Start();
+                    currentProviderEpoch = -1;
+                    ResetNorthReferenceCapture();
                 }
                 else
                 {
@@ -811,23 +976,178 @@ namespace GlassGlobe
                 return;
             }
 
+            if (sample.ProviderEpoch != currentProviderEpoch)
+            {
+                currentProviderEpoch = sample.ProviderEpoch;
+                providerUsesGameRotation = sample.UsesGameRotation;
+                ResetNorthReferenceCapture();
+            }
+
             if (currentEarthDisplayRotation >= 0 &&
-                displayRotation != currentEarthDisplayRotation)
+                sample.DisplayRotation != currentEarthDisplayRotation)
             {
                 hasSmoothedRotation = false;
             }
 
-            currentEarthDisplayRotation = displayRotation;
+            traceRawDeltaDegrees = traceHasPreviousRawRotation
+                ? Quaternion.Angle(
+                    tracePreviousRawRotation,
+                    sample.MotionDeviceInReference)
+                : 0f;
+            traceRawTravelDegrees += traceRawDeltaDegrees;
+            tracePreviousRawRotation = sample.MotionDeviceInReference;
+            traceHasPreviousRawRotation = true;
+            traceEarthHeadingAccuracyDegrees = sample.HeadingAccuracyDegrees;
+            if (sample.HasEarthReference &&
+                TryGetHeadingDegrees(
+                    sample.MotionDeviceInReference,
+                    out float traceMotionHeading) &&
+                TryGetHeadingDegrees(
+                    sample.EarthDeviceInEnu,
+                    out float traceEarthHeading))
+            {
+                traceMotionHeadingDegrees = traceMotionHeading;
+                traceEarthHeadingDegrees = traceEarthHeading;
+                traceLiveNorthYawDegrees = Mathf.DeltaAngle(
+                    traceMotionHeading,
+                    traceEarthHeading);
+                traceLiveNorthDeltaDegrees = fixedNorthReferenceActive
+                    ? Mathf.DeltaAngle(
+                        fixedNorthYawDegrees,
+                        traceLiveNorthYawDegrees)
+                    : 0f;
+                Quaternion traceMappedDeviceInEnu = Quaternion.AngleAxis(
+                    fixedNorthReferenceActive
+                        ? fixedNorthYawDegrees
+                        : traceLiveNorthYawDegrees,
+                    Vector3.up) * sample.MotionDeviceInReference;
+                traceMappedToEarthAngleDegrees = Quaternion.Angle(
+                    traceMappedDeviceInEnu,
+                    sample.EarthDeviceInEnu);
+            }
+
+            Quaternion nextRotation;
+            if (sample.UsesGameRotation)
+            {
+                if (!fixedNorthReferenceActive &&
+                    !TryAdvanceNorthReference(sample))
+                {
+                    if (Time.unscaledTime >= nextEarthRotationRestartTime)
+                    {
+                        nextEarthRotationRestartTime =
+                            Time.unscaledTime + EarthRotationRestartDelaySeconds;
+                        earthRotationVector.Stop();
+                        EarthRotationAvailable = earthRotationVector.Start();
+                        currentProviderEpoch = -1;
+                        ResetNorthReferenceCapture();
+                    }
+
+                    EarthRotationFresh = false;
+                    ActiveOrientationSource =
+                        "Waiting for stable fixed north reference";
+                    return;
+                }
+
+                nextRotation = Quaternion.AngleAxis(
+                    fixedNorthYawDegrees,
+                    Vector3.up) * sample.MotionDeviceInReference;
+            }
+            else
+            {
+                // Fallback only for devices without TYPE_GAME_ROTATION_VECTOR.
+                // This remains timestamped and stale-safe, but may inherit
+                // magnetometer motion; supported Pixels take the game path.
+                fixedNorthReferenceActive = true;
+                fixedNorthYawDegrees = 0f;
+                nextRotation = sample.MotionDeviceInReference;
+            }
+
+            if (!TryNormalizeRotation(ref nextRotation))
+            {
+                EarthRotationFresh = false;
+                return;
+            }
+
+            currentEarthDisplayRotation = sample.DisplayRotation;
             currentEarthDeviceInEnu = nextRotation;
-            currentEarthHeadingAccuracyDegrees = headingAccuracyDegrees;
+            currentEarthHeadingAccuracyDegrees = sample.HeadingAccuracyDegrees;
             hasCurrentEarthDeviceInEnu = true;
             EarthRotationFresh = true;
+            // Every fully usable sample moves the restart deadline forward. A
+            // transient miss is held; only a continuous stale interval restarts.
+            nextEarthRotationRestartTime =
+                Time.unscaledTime + EarthRotationRestartDelaySeconds;
+        }
+
+        private bool TryAdvanceNorthReference(AndroidRotationVectorSample sample)
+        {
+            if (!sample.HasEarthReference ||
+                Mathf.Abs(
+                    sample.MotionSampleAgeSeconds -
+                    sample.EarthSampleAgeSeconds) >
+                    NorthReferenceMaximumAgeSkewSeconds ||
+                !TryGetHeadingDegrees(
+                    sample.MotionDeviceInReference,
+                    out float motionHeadingDegrees) ||
+                !TryGetHeadingDegrees(
+                    sample.EarthDeviceInEnu,
+                    out float earthHeadingDegrees))
+            {
+                northReferenceCandidateActive = false;
+                northReferenceCandidateSamples = 0;
+                return false;
+            }
+
+            float candidateYawDegrees = Mathf.DeltaAngle(
+                motionHeadingDegrees,
+                earthHeadingDegrees);
+            if (!northReferenceCandidateActive ||
+                Mathf.Abs(Mathf.DeltaAngle(
+                    northReferenceCandidateYawDegrees,
+                    candidateYawDegrees)) >
+                    NorthReferenceMaximumJitterDegrees)
+            {
+                northReferenceCandidateActive = true;
+                northReferenceCandidateYawDegrees = candidateYawDegrees;
+                northReferenceCandidateStartTime = Time.unscaledTime;
+                northReferenceCandidateSamples = 1;
+                return false;
+            }
+
+            northReferenceCandidateSamples++;
+            northReferenceCandidateYawDegrees = Mathf.LerpAngle(
+                northReferenceCandidateYawDegrees,
+                candidateYawDegrees,
+                1f / northReferenceCandidateSamples);
+            if (northReferenceCandidateSamples < NorthReferenceMinimumSamples ||
+                Time.unscaledTime - northReferenceCandidateStartTime <
+                    NorthReferenceStabilitySeconds)
+            {
+                return false;
+            }
+
+            fixedNorthYawDegrees = NormalizeHeadingOffset(
+                northReferenceCandidateYawDegrees);
+            fixedNorthReferenceActive = true;
+            return true;
+        }
+
+        private void ResetNorthReferenceCapture()
+        {
+            fixedNorthReferenceActive = false;
+            fixedNorthYawDegrees = 0f;
+            northReferenceCandidateActive = false;
+            northReferenceCandidateYawDegrees = 0f;
+            northReferenceCandidateStartTime = 0f;
+            northReferenceCandidateSamples = 0;
         }
 
         private void UpdateCompassCorrection(
             Quaternion deviceInEnu,
             float headingAccuracyDegrees)
         {
+            traceCompassDeltaDegrees = 0f;
+            traceDesiredCompassCorrectionDegrees = float.NaN;
             CompassAccuracyDegrees =
                 IsFinite(headingAccuracyDegrees) && headingAccuracyDegrees >= 0f
                     ? headingAccuracyDegrees
@@ -858,10 +1178,10 @@ namespace GlassGlobe
                 360f);
             CompassTrueHeadingDegrees = Input.compass.trueHeading;
 
-            // Set North is an explicit user calibration. Once captured, do not
-            // let a late GPS fix or a changing magnetic-declination estimate
-            // slowly move the reference underneath that fixed correction.
-            if (sensorNorthLockActive)
+            // Once true-north declination or an explicit Set North has been
+            // captured, magnetometer/compass updates are diagnostics only. They
+            // never drag the rendered target frame by frame.
+            if (sensorNorthLockActive || compassCorrectionInitialized)
             {
                 return;
             }
@@ -869,24 +1189,46 @@ namespace GlassGlobe
             float desiredCorrection;
             if (!TryGetTrueNorthCorrection(out desiredCorrection))
             {
+                trueNorthCandidateActive = false;
+                trueNorthCandidateSamples = 0;
                 return;
             }
 
-            if (!compassCorrectionInitialized)
+            traceDesiredCompassCorrectionDegrees = desiredCorrection;
+            if (!trueNorthCandidateActive ||
+                Mathf.Abs(Mathf.DeltaAngle(
+                    trueNorthCandidateDegrees,
+                    desiredCorrection)) > TrueNorthMaximumJitterDegrees)
             {
-                CompassCorrectionDegrees = desiredCorrection;
-                compassCorrectionInitialized = true;
+                trueNorthCandidateActive = true;
+                trueNorthCandidateDegrees = desiredCorrection;
+                trueNorthCandidateStartTime = Time.unscaledTime;
+                trueNorthCandidateSamples = 1;
                 return;
             }
 
-            float lerpFactor =
-                1f - Mathf.Exp(
-                    -Time.unscaledDeltaTime /
-                    Mathf.Max(1f, compassAlignSeconds));
-            CompassCorrectionDegrees = Mathf.LerpAngle(
-                CompassCorrectionDegrees,
+            trueNorthCandidateSamples++;
+            trueNorthCandidateDegrees = Mathf.LerpAngle(
+                trueNorthCandidateDegrees,
                 desiredCorrection,
-                lerpFactor);
+                1f / trueNorthCandidateSamples);
+            if (trueNorthCandidateSamples < TrueNorthMinimumSamples ||
+                Time.unscaledTime - trueNorthCandidateStartTime <
+                    TrueNorthStabilitySeconds)
+            {
+                return;
+            }
+
+            float previousCorrectionDegrees = CompassCorrectionDegrees;
+            CompassCorrectionDegrees = NormalizeHeadingOffset(
+                trueNorthCandidateDegrees);
+            traceCompassDeltaDegrees = Mathf.Abs(Mathf.DeltaAngle(
+                previousCorrectionDegrees,
+                CompassCorrectionDegrees));
+            traceCompassTravelDegrees += traceCompassDeltaDegrees;
+            compassCorrectionInitialized = true;
+            trueNorthCandidateActive = false;
+            trueNorthCandidateSamples = 0;
         }
 
         private static bool TryGetHeadingDegrees(
@@ -954,6 +1296,11 @@ namespace GlassGlobe
                 return false;
             }
 
+            if (Input.location.status != LocationServiceStatus.Running)
+            {
+                return false;
+            }
+
             float trueHeading = Input.compass.trueHeading;
             float magneticHeading = Input.compass.magneticHeading;
             if (float.IsNaN(trueHeading) || float.IsInfinity(trueHeading) ||
@@ -962,9 +1309,12 @@ namespace GlassGlobe
                 return false;
             }
 
-            if (Input.location.status != LocationServiceStatus.Running)
+            float headingAccuracyDegrees = Input.compass.headingAccuracy;
+            if (IsFinite(headingAccuracyDegrees) &&
+                headingAccuracyDegrees >= 0f &&
+                headingAccuracyDegrees > NorthReferenceMaximumAccuracyDegrees)
             {
-                return true;
+                return false;
             }
 
             correctionDegrees = Mathf.DeltaAngle(magneticHeading, trueHeading);

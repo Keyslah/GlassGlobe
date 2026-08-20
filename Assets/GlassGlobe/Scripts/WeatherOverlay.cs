@@ -171,9 +171,13 @@ namespace GlassGlobe
         private void Awake()
         {
             GlassGlobeSettingsState.Load();
-            CloudsVisible = GlassGlobeSettingsState.WeatherCategoryEnabled &&
+            bool overlaysCompatible =
+                GlassGlobeSettingsState.GlobeSurface != GlobeSurfaceMode.BlueMarble;
+            CloudsVisible = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                overlaysCompatible &&
                 GlassGlobeSettingsState.WeatherCloudsEnabled;
-            RadarVisible = GlassGlobeSettingsState.WeatherCategoryEnabled &&
+            RadarVisible = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                overlaysCompatible &&
                 GlassGlobeSettingsState.WeatherRadarEnabled;
             CloudsStatus = "Initializing";
             RadarStatus = "Initializing";

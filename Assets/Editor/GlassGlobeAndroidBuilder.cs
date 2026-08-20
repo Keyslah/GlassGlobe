@@ -11,9 +11,9 @@ public static class GlassGlobeAndroidBuilder
     private const string OutputPath = "Builds/Android/GlassGlobePreview.apk";
     private const string PreviewPackageName = "com.glassglobe.preview";
     private const string PlayPackageName = "com.GlassGlobe.myapp";
-    private const string VersionName = "0.2.7";
-    private const int VersionCode = 19;
-    private const string PlayBundleOutputPath = "Builds/Android/GlassGlobe-0.2.7-19.aab";
+    private const string VersionName = "0.2.9";
+    private const int VersionCode = 21;
+    private const string PlayBundleOutputPath = "Builds/Android/GlassGlobe-0.2.9-21.aab";
 
     [MenuItem("GlassGlobe/Build Android Preview APK")]
     public static void BuildPreviewApk()
@@ -21,6 +21,8 @@ public static class GlassGlobeAndroidBuilder
         Debug.Log("GlassGlobeAndroidBuilder: Android preview build starting.");
 
         GlassGlobeArCoreProjectSetup.EnsureConfigured();
+        GlassGlobeAndroidIconSetup.EnsureConfigured();
+        GlassGlobeSplashScreenSetup.EnsureConfigured();
         GlassGlobeProjectBuilder.BuildPreviewScene();
         if (!GlassGlobeBuildValidator.ValidateLoadedPreviewScene())
         {
@@ -103,6 +105,8 @@ public static class GlassGlobeAndroidBuilder
         Debug.Log("GlassGlobeAndroidBuilder: Google Play app bundle build starting.");
 
         GlassGlobeArCoreProjectSetup.EnsureConfigured();
+        GlassGlobeAndroidIconSetup.EnsureConfigured();
+        GlassGlobeSplashScreenSetup.EnsureConfigured();
         GlassGlobeProjectBuilder.BuildPreviewScene();
         if (!GlassGlobeBuildValidator.ValidateLoadedPreviewScene())
         {
