@@ -1,0 +1,126 @@
+            nightLightsOpacitySettingApplied = true;
+            appliedRimGlowSetting = desiredRim;
+            rimGlowSettingApplied = true;
+        }
+'''
+    replace_once(path, old_method, new_method, marker="desiredNightOpacity")
+
+
+def patch_settings_page() -> None:
+    path = "Assets/GlassGlobe/Scripts/GlassGlobeSettingsController.Pages.cs"
+    anchor = '''            GUILayout.Space(18f);
+            DrawCheckbox(
+                "Milky Way Galaxy",
+'''
+    replacement = '''            GUILayout.Space(14f);
+            DrawCheckbox(
+                "Earth at Night",
+                GlassGlobeSettingsState.NightLightsEnabled,
+                delegate
+                {
+                    SetNightLightsEnabled(
+                        !GlassGlobeSettingsState.NightLightsEnabled);
+                });
+            if (GlassGlobeSettingsState.NightLightsEnabled)
+            {
+                DrawOpacityRow(
+                    "Earth at Night transparency",
+                    GlassGlobeSettingsState.NightLightsOpacity,
+                    delegate (float value) { SetNightLightsOpacity(value); },
+                    268f);
+            }
+
+            GUILayout.Space(18f);
+            DrawCheckbox(
+                "Milky Way Galaxy",
+'''
+    replace_once(path, anchor, replacement, marker='"Earth at Night"')
+
+
+def patch_earth_style_controller() -> None:
+    path = "Assets/GlassGlobe/Scripts/EarthStyleController.cs"
+    content = '''using UnityEngine;
+
+namespace GlassGlobe
+{
+    /// <summary>
+    /// Applies the Earth at Night surface and the legacy rim-glow setting to the
+    /// same globe material used by Blue Marble. The Black Marble image is a real
+    /// surface blend, not the old additive glow experiment, so its transparency
+    /// behaves exactly like the Blue Marble transparency control.
+    /// </summary>
+    public sealed class EarthStyleController : MonoBehaviour
+    {
+        private const string NightTextureResource = "GlassGlobeNightLights";
+
+        private static readonly int NightTextureId = Shader.PropertyToID("_NightTex");
+        private static readonly int NightOpacityId = Shader.PropertyToID("_NightOpacity");
+        private static readonly int RimIntensityId = Shader.PropertyToID("_RimIntensity");
+
+        public GlobeRenderer globe;
+
+        [Range(0f, 3f)]
+        public float rimIntensity = 0.9f;
+
+        public string NightLightsStatus { get; private set; }
+        public string RimGlowStatus { get; private set; }
+
+        private Material globeMaterial;
+        private Texture2D nightTexture;
+        private bool nightTextureLoadAttempted;
+
+        public static EarthStyleController EnsureInstance(GlobeRenderer globeRenderer)
+        {
+            if (globeRenderer == null)
+            {
+                return null;
+            }
+
+            EarthStyleController controller = globeRenderer.GetComponent<EarthStyleController>();
+            if (controller == null)
+            {
+                controller = globeRenderer.gameObject.AddComponent<EarthStyleController>();
+            }
+
+            controller.globe = globeRenderer;
+            return controller;
+        }
+
+        private void Awake()
+        {
+            GlassGlobeSettingsState.Load();
+            NightLightsStatus = "Initializing";
+            RimGlowStatus = "Initializing";
+        }
+
+        private void Start()
+        {
+            ApplySettings();
+        }
+
+        private void OnDestroy()
+        {
+            ReleaseNightTexture(globeMaterial);
+        }
+
+        /// <summary>
+        /// Pushes Earth at Night onto the globe. Returns false only when the
+        /// globe material is not ready, allowing the settings controller to retry
+        /// on the next update instead of silently treating the change as applied.
+        /// </summary>
+        public bool ApplySettings()
+        {
+            Material material = ResolveGlobeMaterial();
+            if (material == null)
+            {
+                NightLightsStatus = "Globe material not found";
+                RimGlowStatus = "Globe material not found";
+                return false;
+            }
+
+            if (!material.HasProperty(NightTextureId) ||
+                !material.HasProperty(NightOpacityId) ||
+                !material.HasProperty(RimIntensityId))
+            {
+                NightLightsStatus = "Globe shader does not support Earth at Night";
+                RimGlowStatus = "Globe shader does not support Earth styles";

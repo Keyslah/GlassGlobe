@@ -1,0 +1,138 @@
+                return false;
+            }
+
+            // Seen from inside the glass Earth, the far-side surface is nearer
+            // to the camera than the weather shells. Draw the globe after those
+            // shells so a visible night surface is not buried beneath them.
+            material.renderQueue = 3008;
+
+            bool nightWanted = GlassGlobeSettingsState.EffectiveNightLightsEnabled;
+            if (!nightWanted)
+            {
+                material.SetFloat(NightOpacityId, 0f);
+                ReleaseNightTexture(material);
+                NightLightsStatus = "Hidden";
+            }
+            else
+            {
+                Texture2D texture = ResolveNightTexture();
+                if (texture == null)
+                {
+                    material.SetFloat(NightOpacityId, 0f);
+                    NightLightsStatus = "NASA Black Marble map missing from Resources";
+                }
+                else
+                {
+                    float opacity = GlassGlobeSettingsState.NightLightsOpacity;
+                    material.SetTexture(NightTextureId, texture);
+                    material.SetFloat(NightOpacityId, opacity);
+                    NightLightsStatus = string.Format(
+                        "Visible (NASA Black Marble 2016). Opacity {0:0}%",
+                        opacity * 100f);
+                }
+            }
+
+            bool rimWanted = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                GlassGlobeSettingsState.RimGlowEnabled;
+            material.SetFloat(RimIntensityId, rimWanted ? rimIntensity : 0f);
+            RimGlowStatus = rimWanted ? "Visible" : "Hidden";
+            return true;
+        }
+
+        private Material ResolveGlobeMaterial()
+        {
+            if (globeMaterial != null)
+            {
+                return globeMaterial;
+            }
+
+            if (globe == null)
+            {
+                globe = FindFirstObjectByType<GlobeRenderer>();
+            }
+
+            if (globe == null)
+            {
+                return null;
+            }
+
+            if (globe.globeMaterial != null)
+            {
+                globeMaterial = globe.globeMaterial;
+                return globeMaterial;
+            }
+
+            MeshRenderer meshRenderer = globe.GetComponent<MeshRenderer>();
+            globeMaterial = meshRenderer != null ? meshRenderer.sharedMaterial : null;
+            return globeMaterial;
+        }
+
+        private Texture2D ResolveNightTexture()
+        {
+            if (nightTexture != null || nightTextureLoadAttempted)
+            {
+                return nightTexture;
+            }
+
+            nightTextureLoadAttempted = true;
+            nightTexture = Resources.Load<Texture2D>(NightTextureResource);
+            if (nightTexture == null)
+            {
+                Debug.LogWarning(
+                    "EarthStyleController: Earth at Night texture not found at Resources/" +
+                    NightTextureResource + ".");
+            }
+
+            return nightTexture;
+        }
+
+        private void ReleaseNightTexture(Material material)
+        {
+            if (nightTexture == null)
+            {
+                nightTextureLoadAttempted = false;
+                return;
+            }
+
+            if (material != null && material.HasProperty(NightTextureId))
+            {
+                material.SetTexture(NightTextureId, null);
+            }
+
+            Resources.UnloadAsset(nightTexture);
+            nightTexture = null;
+            nightTextureLoadAttempted = false;
+        }
+    }
+}
+'''
+    write_text(path, content)
+
+
+def patch_globe_shader() -> None:
+    path = "Assets/GlassGlobe/Shaders/GlassGlobeTransparentGlobe.shader"
+    content = '''Shader "GlassGlobe/Transparent Globe"
+{
+    Properties
+    {
+        _Color ("Color", Color) = (0.05, 0.24, 0.32, 0.16)
+        _BlueMarbleTex ("Blue Marble Map", 2D) = "black" {}
+        _BlueMarbleOpacity ("Blue Marble Opacity", Range(0, 1)) = 0
+        _NightTex ("Earth at Night Map", 2D) = "black" {}
+        _NightOpacity ("Earth at Night Opacity", Range(0, 1)) = 0
+        _RimColor ("Rim Glow Color", Color) = (0.35, 0.78, 1, 0.85)
+        _RimIntensity ("Rim Glow Intensity", Range(0, 3)) = 0
+        _RimPower ("Rim Glow Falloff", Range(0.5, 8)) = 3
+    }
+
+    SubShader
+    {
+        Tags
+        {
+            "Queue" = "Transparent"
+            "RenderType" = "Transparent"
+        }
+
+        Pass
+        {
+            Blend SrcAlpha OneMinusSrcAlpha

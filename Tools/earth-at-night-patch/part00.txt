@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+changed_paths: list[str] = []
+
+
+def read_text(relative: str) -> str:
+    return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def write_text(relative: str, text: str) -> None:
+    path = ROOT / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = path.read_text(encoding="utf-8") if path.exists() else None
+    if current == text:
+        return
+    path.write_text(text, encoding="utf-8", newline="\n")
+    changed_paths.append(relative)
+
+
+def replace_once(relative: str, old: str, new: str, marker: str | None = None) -> None:
+    text = read_text(relative)
+    if marker is not None and marker in text:
+        return
+    count = text.count(old)
+    if count != 1:
+        raise RuntimeError(
+            f"{relative}: expected exactly one patch anchor, found {count}: {old[:100]!r}"
+        )
+    write_text(relative, text.replace(old, new, 1))
+
+
+def patch_settings_state() -> None:
+    path = "Assets/GlassGlobe/Scripts/GlassGlobeSettingsState.cs"
+
+    replace_once(
+        path,
+        '        private const string NightLightsKey = Prefix + "NightLights";\n'
+        '        private const string RimGlowKey = Prefix + "RimGlow";',
+        '        // V2 deliberately does not reuse the old NightLights key. The original\n'
+        '        // additive experiment did not render reliably, so stale preferences from\n'
+        '        // that build must not unexpectedly switch this replacement on.\n'
+        '        private const string LegacyNightLightsKey = Prefix + "NightLights";\n'
+        '        private const string NightLightsKey = Prefix + "EarthAtNightEnabledV2";\n'
+        '        private const string NightLightsOpacityKey = Prefix + "EarthAtNightOpacityV1";\n'
+        '        private const string RimGlowKey = Prefix + "RimGlow";',
+        marker="EarthAtNightEnabledV2",
+    )
+
+    replace_once(
+        path,
+        '        public static bool NightLightsEnabled { get; private set; }\n'
+        '        public static bool RimGlowEnabled { get; private set; }',
+        '        public static bool NightLightsEnabled { get; private set; }\n'
+        '        public static float NightLightsOpacity { get; private set; }\n'
+        '        public static bool RimGlowEnabled { get; private set; }',
+        marker="public static float NightLightsOpacity",
+    )
+
+    replace_once(
+        path,
+        '        public static bool EffectiveShowSetNorthButton\n',
+        '        public static bool EffectiveNightLightsEnabled\n'
+        '        {\n'
+        '            get\n'
+        '            {\n'
+        '                Load();\n'
+        '                return DisplayCategoryEnabled && NightLightsEnabled;\n'
+        '            }\n'
+        '        }\n\n'
+        '        public static bool EffectiveShowSetNorthButton\n',
+        marker="EffectiveNightLightsEnabled",
+    )
+
+    replace_once(
+        path,
+        '            new PrefEntry(NightLightsKey, PrefKind.Number),\n'
+        '            new PrefEntry(RimGlowKey, PrefKind.Number),',
+        '            new PrefEntry(LegacyNightLightsKey, PrefKind.Number, false),\n'
+        '            new PrefEntry(NightLightsKey, PrefKind.Number),\n'
+        '            new PrefEntry(NightLightsOpacityKey, PrefKind.Decimal),\n'
+        '            new PrefEntry(RimGlowKey, PrefKind.Number),',
+        marker="new PrefEntry(NightLightsOpacityKey",
+    )
+
+    replace_once(
+        path,
+        '            NightLightsEnabled = false;\n'
+        '            RimGlowEnabled = false;',
+        '            NightLightsEnabled = ReadBool(NightLightsKey, false);\n'
+        '            NightLightsOpacity = Mathf.Clamp01(\n'
+        '                PlayerPrefs.GetFloat(NightLightsOpacityKey, 1f));\n'
+        '            RimGlowEnabled = false;',
+        marker="PlayerPrefs.GetFloat(NightLightsOpacityKey",
+    )
+
+    replace_once(
+        path,
+        '        public static void SetWaterArtEnabled(bool value)\n',
+        '        public static void SetNightLightsEnabled(bool value)\n'
+        '        {\n'
+        '            Load();\n'
+        '            NightLightsEnabled = value;\n'
+        '            WriteBool(NightLightsKey, value);\n'
+        '        }\n\n'
+        '        public static void SetNightLightsOpacity(float value)\n'
+        '        {\n'
+        '            Load();\n'

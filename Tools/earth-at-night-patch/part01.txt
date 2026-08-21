@@ -1,0 +1,109 @@
+        '            NightLightsOpacity = Mathf.Clamp01(value);\n'
+        '            WriteFloat(NightLightsOpacityKey, NightLightsOpacity);\n'
+        '        }\n\n'
+        '        public static void SetWaterArtEnabled(bool value)\n',
+        marker="SetNightLightsOpacity",
+    )
+
+
+def patch_settings_controller() -> None:
+    path = "Assets/GlassGlobe/Scripts/GlassGlobeSettingsController.cs"
+
+    replace_once(
+        path,
+        '        private bool nightLightsSettingApplied;\n'
+        '        private bool appliedNightLightsSetting;\n'
+        '        private bool rimGlowSettingApplied;',
+        '        private bool nightLightsSettingApplied;\n'
+        '        private bool appliedNightLightsSetting;\n'
+        '        private bool nightLightsOpacitySettingApplied;\n'
+        '        private float appliedNightLightsOpacity;\n'
+        '        private bool rimGlowSettingApplied;',
+        marker="nightLightsOpacitySettingApplied",
+    )
+
+    replace_once(
+        path,
+        '            nightLightsSettingApplied = false;\n'
+        '            rimGlowSettingApplied = false;',
+        '            nightLightsSettingApplied = false;\n'
+        '            nightLightsOpacitySettingApplied = false;\n'
+        '            rimGlowSettingApplied = false;',
+        marker="nightLightsOpacitySettingApplied = false;",
+    )
+
+    replace_once(
+        path,
+        '        private void SetWaterArtEnabled(bool value)\n',
+        '        private void SetNightLightsEnabled(bool value)\n'
+        '        {\n'
+        '            GlassGlobeSettingsState.SetNightLightsEnabled(value);\n'
+        '            nightLightsSettingApplied = false;\n'
+        '            ApplyEarthStyleSettings();\n'
+        '        }\n\n'
+        '        private void SetNightLightsOpacity(float value)\n'
+        '        {\n'
+        '            GlassGlobeSettingsState.SetNightLightsOpacity(value);\n'
+        '            nightLightsOpacitySettingApplied = false;\n'
+        '            ApplyEarthStyleSettings();\n'
+        '        }\n\n'
+        '        private void SetWaterArtEnabled(bool value)\n',
+        marker="private void SetNightLightsOpacity",
+    )
+
+    old_method = '''        private void ApplyEarthStyleSettings()
+        {
+            if (earthStyle == null)
+            {
+                return;
+            }
+
+            bool desiredNight = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                GlassGlobeSettingsState.NightLightsEnabled;
+            bool desiredRim = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                GlassGlobeSettingsState.RimGlowEnabled;
+            if (nightLightsSettingApplied && appliedNightLightsSetting == desiredNight &&
+                rimGlowSettingApplied && appliedRimGlowSetting == desiredRim)
+            {
+                return;
+            }
+
+            earthStyle.ApplySettings();
+            appliedNightLightsSetting = desiredNight;
+            nightLightsSettingApplied = true;
+            appliedRimGlowSetting = desiredRim;
+            rimGlowSettingApplied = true;
+        }
+'''
+    new_method = '''        private void ApplyEarthStyleSettings()
+        {
+            if (earthStyle == null)
+            {
+                return;
+            }
+
+            bool desiredNight = GlassGlobeSettingsState.EffectiveNightLightsEnabled;
+            float desiredNightOpacity = desiredNight
+                ? GlassGlobeSettingsState.NightLightsOpacity
+                : 0f;
+            bool desiredRim = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                GlassGlobeSettingsState.RimGlowEnabled;
+            if (nightLightsSettingApplied && appliedNightLightsSetting == desiredNight &&
+                nightLightsOpacitySettingApplied &&
+                Mathf.Approximately(appliedNightLightsOpacity, desiredNightOpacity) &&
+                rimGlowSettingApplied && appliedRimGlowSetting == desiredRim)
+            {
+                return;
+            }
+
+            // Do not record the state as applied until the globe material accepts
+            // it. Startup can reach this controller before GlobeRenderer has
+            // finished rebuilding its material, and that must be retried.
+            if (!earthStyle.ApplySettings())
+            {
+                return;
+            }
+
+            appliedNightLightsSetting = desiredNight;
+            nightLightsSettingApplied = true;
+            appliedNightLightsOpacity = desiredNightOpacity;

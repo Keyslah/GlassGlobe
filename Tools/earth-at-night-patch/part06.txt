@@ -1,0 +1,116 @@
+    android_pattern = re.compile(
+        r"  - serializedVersion: 4\n"
+        r"    buildTarget: Android\n"
+        r".*?"
+        r"(?=  - serializedVersion: 4\n    buildTarget: WebGL)",
+        re.DOTALL,
+    )
+    android_block = '''  - serializedVersion: 4
+    buildTarget: Android
+    maxTextureSize: 4096
+    resizeAlgorithm: 0
+    textureFormat: 50
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 1
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+'''
+    text, count = android_pattern.subn(android_block, text, count=1)
+    if count != 1:
+        raise RuntimeError(f"{path}: could not find Android platform block")
+
+    if text != original:
+        write_text(path, text)
+
+
+def patch_readme() -> None:
+    path = "README.md"
+    feature_anchor = '''- **Blue Marble surface** — NASA satellite imagery on the globe, in four seasons,
+  with adjustable transparency and a season button on the viewport. Only the
+  selected season is loaded into runtime texture memory.
+'''
+    feature_replacement = feature_anchor + '''- **Earth at Night surface** — NASA Black Marble 2016 imagery, independently
+  toggleable over Blue Moon or Blue Marble with adjustable transparency.
+'''
+    replace_once(path, feature_anchor, feature_replacement, marker="**Earth at Night surface**")
+
+    data_anchor = '''**Milky Way panorama:** [ESO/S. Brunier](https://www.eso.org/public/images/eso0932a/)
+'''
+    data_replacement = '''**Earth at Night:** [NASA Earth Observatory Black Marble 2016 color map](https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/),
+using the global 0.1-degree `BlackMarble_2016_01deg.jpg` composite
+(3600×1800). NASA Earth Observatory image by Joshua Stevens using Suomi NPP
+VIIRS data from Miguel Román, NASA Goddard Space Flight Center. The repository
+keeps the source image byte-for-byte; `GlassGlobeEarthAtNightChecks` verifies its
+SHA-256 before a release build.
+
+''' + data_anchor
+    replace_once(path, data_anchor, data_replacement, marker="BlackMarble_2016_01deg.jpg")
+
+
+def add_earth_at_night_checks() -> None:
+    path = "Assets/Editor/GlassGlobeEarthAtNightChecks.cs"
+    content = '''using System;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+using UnityEditor;
+using UnityEngine;
+
+/// <summary>
+/// Release guardrails for the Earth at Night feature. These checks target the
+/// exact failure modes of the retired additive version: wrong source imagery,
+/// power-of-two distortion, missing shader properties, near-hemisphere culling,
+/// and a missing mirrored-longitude correction.
+/// </summary>
+public static class GlassGlobeEarthAtNightChecks
+{
+    private const string TexturePath =
+        "Assets/GlassGlobe/Resources/GlassGlobeNightLights.jpg";
+    private const string ShaderPath =
+        "Assets/GlassGlobe/Shaders/GlassGlobeTransparentGlobe.shader";
+    private const string ExpectedSha256 =
+        "d87de751a264e4f8ff69c68de5dab9606daee87a6f15ae743c93200743bd7ec1";
+
+    [MenuItem("GlassGlobe/Run Earth at Night Checks")]
+    public static void RunMenu()
+    {
+        if (!Run())
+        {
+            throw new Exception(
+                "GlassGlobe Earth at Night checks failed. See Console errors above.");
+        }
+    }
+
+    public static void RunBatch()
+    {
+        if (!Run())
+        {
+            EditorApplication.Exit(1);
+        }
+    }
+
+    public static bool Run()
+    {
+        int failures = 0;
+
+        Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(TexturePath);
+        Check(ref failures, texture != null, "Earth at Night texture is missing.");
+        if (texture != null)
+        {
+            Check(
+                ref failures,
+                texture.width == 3600 && texture.height == 1800,
+                "Earth at Night must import at 3600x1800, got " +
+                texture.width + "x" + texture.height + ".");
+        }
+
+        TextureImporter importer = AssetImporter.GetAtPath(TexturePath) as TextureImporter;
+        Check(ref failures, importer != null, "Earth at Night TextureImporter is missing.");
+        if (importer != null)
+        {
+            Check(ref failures, importer.sRGBTexture, "Earth at Night must import as sRGB.");
+            Check(ref failures, importer.mipmapEnabled, "Earth at Night mipmaps must be enabled.");

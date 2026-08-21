@@ -1,0 +1,58 @@
+name: Apply Earth at Night patch
+
+on:
+  push:
+    branches:
+      - feature/earth-at-night
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Reassemble and apply guarded source patch
+        shell: bash
+        run: |
+          cat Tools/earth-at-night-patch/part*.txt > Tools/apply_earth_at_night_patch.py
+          echo "f504b5d3aa01e47adb6239d277d9a27dbc1c888bf9cecf8934265a2fbdaf9e6f  Tools/apply_earth_at_night_patch.py" | sha256sum -c -
+          python -m py_compile Tools/apply_earth_at_night_patch.py
+          python Tools/apply_earth_at_night_patch.py
+          git diff --check
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "Patch already applied."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            README.md \
+            Assets/Editor/GlassGlobeBuildValidator.cs \
+            Assets/Editor/GlassGlobeProjectBuilder.cs \
+            Assets/Editor/GlassGlobeEarthAtNightChecks.cs \
+            Assets/Editor/GlassGlobeEarthAtNightChecks.cs.meta \
+            Assets/GlassGlobe/Resources/GlassGlobeNightLights.jpg.meta \
+            Assets/GlassGlobe/Scripts/EarthStyleController.cs \
+            Assets/GlassGlobe/Scripts/GlassGlobeSettingsController.cs \
+            Assets/GlassGlobe/Scripts/GlassGlobeSettingsController.Pages.cs \
+            Assets/GlassGlobe/Scripts/GlassGlobeSettingsState.cs \
+            Assets/GlassGlobe/Shaders/GlassGlobeTransparentGlobe.shader
+          git commit -m "Implement reliable Earth at Night surface"
+          git push origin HEAD:feature/earth-at-night

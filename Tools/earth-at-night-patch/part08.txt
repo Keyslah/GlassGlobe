@@ -1,0 +1,29 @@
+    meta_path = path + ".meta"
+    meta = '''fileFormatVersion: 2
+guid: 9a4e1d8cd1a54bc5ad174d9c9f31ec82
+'''
+    write_text(meta_path, meta)
+
+
+def main() -> None:
+    patch_settings_state()
+    patch_settings_controller()
+    patch_settings_page()
+    patch_earth_style_controller()
+    patch_globe_shader()
+    patch_project_builder()
+    patch_build_validator()
+    patch_night_texture_meta()
+    patch_readme()
+    add_earth_at_night_checks()
+
+    if changed_paths:
+        print("Earth at Night patch updated:")
+        for path in changed_paths:
+            print("  " + path)
+    else:
+        print("Earth at Night patch already applied; no files changed.")
+
+
+if __name__ == "__main__":
+    main()
