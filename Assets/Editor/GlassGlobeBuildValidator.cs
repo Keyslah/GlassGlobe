@@ -10,6 +10,23 @@ using UnityEngine.SceneManagement;
 public static class GlassGlobeBuildValidator
 {
     private const string ScenePath = "Assets/GlassGlobe/Scenes/GlassGlobePreview.unity";
+    private const string FullNightSourceRoot =
+        "Assets/StreamingAssets/GlassGlobeNightFullRes";
+
+    private static readonly string[] FullNightSourceIds =
+        { "A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2" };
+
+    private static readonly long[] FullNightSourceSizes =
+    {
+        30825698L,
+        29472401L,
+        59097456L,
+        39122860L,
+        7830664L,
+        21337236L,
+        13553256L,
+        14400257L
+    };
 
     [MenuItem("GlassGlobe/Validate Preview Scene")]
     public static void ValidatePreviewScene()
@@ -60,6 +77,13 @@ public static class GlassGlobeBuildValidator
 
         GlobeRenderer globe = FindInScene<GlobeRenderer>(scene);
         LogRequired(ref errors, globe != null, "GlassGlobeBuildValidator: missing Earth Globe with GlobeRenderer.");
+        if (globe != null)
+        {
+            LogRequired(
+                ref errors,
+                globe.longitudeSegments == 240 && globe.latitudeSegments == 120,
+                "GlassGlobeBuildValidator: globe mesh must use the 240x120 full-resolution tile grid.");
+        }
 
         GlobeGridRenderer grid = FindInScene<GlobeGridRenderer>(scene);
         LogRequired(ref errors, grid != null, "GlassGlobeBuildValidator: missing low-poly GlobeGridRenderer.");
@@ -142,6 +166,21 @@ public static class GlassGlobeBuildValidator
                 "GlassGlobeBuildValidator: Earth at Night must import at its native 3600x1800 size.");
         }
 
+        ValidateFullResolutionNightSources(ref errors);
+
+        string nightLayoutError;
+        LogRequired(
+            ref errors,
+            NightMapTileLayout.ValidateContract(out nightLayoutError),
+            "GlassGlobeBuildValidator: full-resolution night layout is invalid: " +
+            nightLayoutError);
+
+        Shader nightTileShader = Shader.Find("GlassGlobe/Earth at Night Tile");
+        LogRequired(
+            ref errors,
+            nightTileShader != null,
+            "GlassGlobeBuildValidator: full-resolution Earth at Night tile shader is missing.");
+
         if (globe != null && globe.globeMaterial != null)
         {
             LogRequired(
@@ -152,14 +191,18 @@ public static class GlassGlobeBuildValidator
                 ref errors,
                 globe.globeMaterial.HasProperty("_NightOpacity"),
                 "GlassGlobeBuildValidator: globe shader is missing _NightOpacity.");
+            LogRequired(
+                ref errors,
+                globe.globeMaterial.HasProperty("_NightCoverageTex"),
+                "GlassGlobeBuildValidator: globe shader is missing _NightCoverageTex.");
         }
 
         BlueMarbleSurface blueMarble = FindInScene<BlueMarbleSurface>(scene);
         LogRequired(ref errors, blueMarble != null, "GlassGlobeBuildValidator: missing BlueMarbleSurface on the globe.");
-        LogRequired(ref errors, HasBlueMarbleResource("Spring"), "GlassGlobeBuildValidator: Blue Marble spring Resources texture is missing.");
-        LogRequired(ref errors, HasBlueMarbleResource("Summer"), "GlassGlobeBuildValidator: Blue Marble summer Resources texture is missing.");
-        LogRequired(ref errors, HasBlueMarbleResource("Fall"), "GlassGlobeBuildValidator: Blue Marble fall Resources texture is missing.");
-        LogRequired(ref errors, HasBlueMarbleResource("Winter"), "GlassGlobeBuildValidator: Blue Marble winter Resources texture is missing.");
+        LogRequired(ref errors, HasBlueMarbleResource("Spring", 4096, 2048), "GlassGlobeBuildValidator: Blue Marble spring texture must import at 4096x2048.");
+        LogRequired(ref errors, HasBlueMarbleResource("Summer", 16384, 8192), "GlassGlobeBuildValidator: Blue Marble summer texture must import at 16384x8192.");
+        LogRequired(ref errors, HasBlueMarbleResource("Fall", 4096, 2048), "GlassGlobeBuildValidator: Blue Marble fall texture must import at 4096x2048.");
+        LogRequired(ref errors, HasBlueMarbleResource("Winter", 4096, 2048), "GlassGlobeBuildValidator: Blue Marble winter texture must import at 4096x2048.");
 
         SunMoonBackground sunMoon = FindInScene<SunMoonBackground>(scene);
         LogRequired(ref errors, sunMoon != null, "GlassGlobeBuildValidator: missing SunMoonBackground.");
@@ -324,10 +367,48 @@ public static class GlassGlobeBuildValidator
         return false;
     }
 
-    private static bool HasBlueMarbleResource(string season)
+    private static void ValidateFullResolutionNightSources(ref int errors)
+    {
+        long totalBytes = 0L;
+        for (int index = 0; index < FullNightSourceIds.Length; index++)
+        {
+            string path = FullNightSourceRoot + "/BlackMarble_2016_" +
+                FullNightSourceIds[index] + ".resource";
+            string absolutePath = Path.Combine(Directory.GetCurrentDirectory(), path);
+            FileInfo source = new FileInfo(absolutePath);
+            LogRequired(
+                ref errors,
+                source.Exists,
+                "GlassGlobeBuildValidator: missing full-resolution night source " + path + ".");
+            if (!source.Exists)
+            {
+                continue;
+            }
+
+            LogRequired(
+                ref errors,
+                source.Length == FullNightSourceSizes[index],
+                "GlassGlobeBuildValidator: full-resolution night source " +
+                FullNightSourceIds[index] + " has the wrong byte length.");
+            totalBytes += source.Length;
+        }
+
+        LogRequired(
+            ref errors,
+            totalBytes == 215639828L,
+            "GlassGlobeBuildValidator: full-resolution night source set must total 215639828 bytes.");
+    }
+
+    private static bool HasBlueMarbleResource(
+        string season,
+        int expectedWidth,
+        int expectedHeight)
     {
         string path = "Assets/GlassGlobe/Resources/GlassGlobeBlueMarble" + season + ".jpg";
-        return AssetDatabase.LoadAssetAtPath<Texture2D>(path) != null;
+        Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        return texture != null &&
+            texture.width == expectedWidth &&
+            texture.height == expectedHeight;
     }
 
     private static string GetPath(GameObject gameObject)

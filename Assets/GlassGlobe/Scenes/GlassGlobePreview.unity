@@ -40289,7 +40289,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _BlueMarbleOpacity: 0
-    - _NightIntensity: 0
+    - _NightOpacity: 0
     - _RimIntensity: 0
     - _RimPower: 3
     m_Colors:
@@ -41825,8 +41825,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GlassGlobe.GlobeRenderer
   radiusUnits: 10
   center: {x: 0, y: 0, z: 0}
-  longitudeSegments: 128
-  latitudeSegments: 64
+  longitudeSegments: 240
+  latitudeSegments: 120
   globeColor: {r: 0.01, g: 0.08, b: 0.1, a: 0.06}
   globeMaterial: {fileID: 640373646}
 --- !u!114 &714502086
@@ -41855,7 +41855,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GlassGlobe.EarthStyleController
   globe: {fileID: 714502085}
-  nightIntensity: 1.6
   rimIntensity: 0.9
 --- !u!23 &714502088
 MeshRenderer:

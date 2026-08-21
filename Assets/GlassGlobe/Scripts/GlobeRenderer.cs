@@ -13,10 +13,10 @@ namespace GlassGlobe
 
         public Vector3 center = Vector3.zero;
 
-        [Range(12, 192)]
+        [Range(12, 240)]
         public int longitudeSegments = 96;
 
-        [Range(6, 96)]
+        [Range(6, 120)]
         public int latitudeSegments = 48;
 
         public Color globeColor = new Color(0.08f, 0.27f, 0.38f, 0.18f);

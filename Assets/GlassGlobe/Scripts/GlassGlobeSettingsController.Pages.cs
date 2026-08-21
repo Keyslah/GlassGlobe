@@ -233,7 +233,7 @@ namespace GlassGlobe
             {
                 GUILayout.Space(10f);
                 DrawCheckbox(
-                    "Hide season button",
+                    "Hide surface button",
                     !GlassGlobeSettingsState.SeasonButtonVisible,
                     delegate
                     {

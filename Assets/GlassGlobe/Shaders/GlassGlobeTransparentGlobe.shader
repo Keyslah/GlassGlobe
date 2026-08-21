@@ -6,6 +6,7 @@ Shader "GlassGlobe/Transparent Globe"
         _BlueMarbleTex ("Blue Marble Map", 2D) = "black" {}
         _BlueMarbleOpacity ("Blue Marble Opacity", Range(0, 1)) = 0
         _NightTex ("Earth at Night Map", 2D) = "black" {}
+        _NightCoverageTex ("Full-Resolution Night Coverage", 2D) = "black" {}
         _NightOpacity ("Earth at Night Opacity", Range(0, 1)) = 0
         _RimColor ("Rim Glow Color", Color) = (0.35, 0.78, 1, 0.85)
         _RimIntensity ("Rim Glow Intensity", Range(0, 3)) = 0
@@ -56,6 +57,7 @@ Shader "GlassGlobe/Transparent Globe"
             sampler2D _BlueMarbleTex;
             half _BlueMarbleOpacity;
             sampler2D _NightTex;
+            sampler2D _NightCoverageTex;
             half _NightOpacity;
             fixed4 _RimColor;
             half _RimIntensity;
@@ -89,7 +91,14 @@ Shader "GlassGlobe/Transparent Globe"
                 // the official Black Marble image and lower values transparently
                 // reveal Blue Moon or Blue Marble beneath it.
                 fixed3 nightMap = tex2D(_NightTex, input.uv).rgb;
-                half nightOpacity = saturate(_NightOpacity);
+                // Android region-decodes the literal 500 m NASA source only
+                // where the phone is looking. Keep this global map as an
+                // immediate fallback, but suppress it beneath a loaded tile so
+                // the later tile pass performs exactly one night-surface blend.
+                half fullResolutionCoverage =
+                    saturate(tex2D(_NightCoverageTex, input.uv).r);
+                half nightOpacity =
+                    saturate(_NightOpacity) * (1.0 - fullResolutionCoverage);
                 color.rgb = lerp(color.rgb, nightMap, nightOpacity);
                 color.a = lerp(color.a, 1.0, nightOpacity);
 

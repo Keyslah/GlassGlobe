@@ -302,10 +302,11 @@ namespace GlassGlobe
         }
 
         /// <summary>
-        /// Faint season button along the bottom of the viewport. It only means
-        /// anything while Blue Marble is showing, so it hides with it. Drawn in
-        /// the same UI space the touch layer reports points in, so the stored
-        /// rect can be hit-tested directly against a tap.
+        /// Faint surface button along the bottom of the viewport. It cycles the
+        /// four Blue Marble seasons plus Earth at Night, and hides when Blue
+        /// Marble is not the underlying surface. Drawn in the same UI space the
+        /// touch layer reports points in, so the stored rect can be hit-tested
+        /// directly against a tap.
         /// </summary>
         private void DrawSeasonCycleButton()
         {
@@ -331,13 +332,15 @@ namespace GlassGlobe
             GUI.color = new Color(1f, 1f, 1f, 0.4f);
             bool clicked = GUI.Button(
                 seasonCycleButtonRect,
-                GlassGlobeSettingsState.BlueMarbleSeasonChoice.ToString(),
+                ViewportSurfaceCycle.GetLabel(
+                    GlassGlobeSettingsState.NightLightsEnabled,
+                    GlassGlobeSettingsState.BlueMarbleSeasonChoice),
                 seasonButtonStyle);
             GUI.color = previousColor;
 
             if (clicked && !Application.isMobilePlatform)
             {
-                CycleBlueMarbleSeason();
+                CycleViewportSurface();
             }
         }
 
@@ -719,14 +722,31 @@ namespace GlassGlobe
         }
 
         /// <summary>
-        /// Advances the Blue Marble season, wrapping round. Driven by the
-        /// viewport button so seasons can be flipped without opening settings.
+        /// Advances through Summer, Fall, Winter, Spring, and Earth at Night.
+        /// Earth at Night preserves the underlying season and both opacity
+        /// settings; leaving it advances to the following season.
         /// </summary>
-        private void CycleBlueMarbleSeason()
+        private void CycleViewportSurface()
         {
-            BlueMarbleSeason next =
-                (BlueMarbleSeason)(((int)GlassGlobeSettingsState.BlueMarbleSeasonChoice + 1) % 4);
-            SelectBlueMarbleSeason(next);
+            bool nightLightsEnabled = GlassGlobeSettingsState.NightLightsEnabled;
+            BlueMarbleSeason season = GlassGlobeSettingsState.BlueMarbleSeasonChoice;
+            bool nextNightLightsEnabled;
+            BlueMarbleSeason nextSeason;
+            ViewportSurfaceCycle.ResolveNext(
+                nightLightsEnabled,
+                season,
+                out nextNightLightsEnabled,
+                out nextSeason);
+
+            if (nextSeason != season)
+            {
+                SelectBlueMarbleSeason(nextSeason);
+            }
+
+            if (nextNightLightsEnabled != nightLightsEnabled)
+            {
+                SetNightLightsEnabled(nextNightLightsEnabled);
+            }
         }
 
         /// <summary>

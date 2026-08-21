@@ -13,6 +13,8 @@ namespace GlassGlobe
         private const string NightTextureResource = "GlassGlobeNightLights";
 
         private static readonly int NightTextureId = Shader.PropertyToID("_NightTex");
+        private static readonly int NightCoverageTextureId =
+            Shader.PropertyToID("_NightCoverageTex");
         private static readonly int NightOpacityId = Shader.PropertyToID("_NightOpacity");
         private static readonly int RimIntensityId = Shader.PropertyToID("_RimIntensity");
 
@@ -27,6 +29,7 @@ namespace GlassGlobe
         private Material globeMaterial;
         private Texture2D nightTexture;
         private bool nightTextureLoadAttempted;
+        private NightTileSurface fullResolutionNight;
 
         public static EarthStyleController EnsureInstance(GlobeRenderer globeRenderer)
         {
@@ -59,6 +62,11 @@ namespace GlassGlobe
 
         private void OnDestroy()
         {
+            if (fullResolutionNight != null)
+            {
+                fullResolutionNight.SetNightState(globeMaterial, false, 0f);
+            }
+
             ReleaseNightTexture(globeMaterial);
         }
 
@@ -78,6 +86,7 @@ namespace GlassGlobe
             }
 
             if (!material.HasProperty(NightTextureId) ||
+                !material.HasProperty(NightCoverageTextureId) ||
                 !material.HasProperty(NightOpacityId) ||
                 !material.HasProperty(RimIntensityId))
             {
@@ -91,36 +100,54 @@ namespace GlassGlobe
             // shells so a visible night surface is not buried beneath them.
             material.renderQueue = 3008;
 
+            // Full-resolution patches repeat the base material's rim term.
+            // Apply the current rim state before handing the material to the
+            // tile surface so the first rendered frame is identical beneath
+            // and outside the streamed coverage mask.
+            bool rimWanted = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                GlassGlobeSettingsState.RimGlowEnabled;
+            material.SetFloat(RimIntensityId, rimWanted ? rimIntensity : 0f);
+            RimGlowStatus = rimWanted ? "Visible" : "Hidden";
+
             bool nightWanted = GlassGlobeSettingsState.EffectiveNightLightsEnabled;
             if (!nightWanted)
             {
                 material.SetFloat(NightOpacityId, 0f);
+                NightTileSurface surface = ResolveFullResolutionNight();
+                if (surface != null)
+                {
+                    surface.SetNightState(material, false, 0f);
+                }
+
                 ReleaseNightTexture(material);
                 NightLightsStatus = "Hidden";
             }
             else
             {
+                float opacity = GlassGlobeSettingsState.NightLightsOpacity;
                 Texture2D texture = ResolveNightTexture();
                 if (texture == null)
                 {
                     material.SetFloat(NightOpacityId, 0f);
-                    NightLightsStatus = "NASA Black Marble map missing from Resources";
+                    NightLightsStatus =
+                        "Loading full-resolution NASA tiles (global fallback missing)";
                 }
                 else
                 {
-                    float opacity = GlassGlobeSettingsState.NightLightsOpacity;
                     material.SetTexture(NightTextureId, texture);
                     material.SetFloat(NightOpacityId, opacity);
                     NightLightsStatus = string.Format(
-                        "Visible (NASA Black Marble 2016). Opacity {0:0}%",
+                        "Visible (NASA Black Marble 2016, full-resolution tiles). Opacity {0:0}%",
                         opacity * 100f);
+                }
+
+                NightTileSurface surface = ResolveFullResolutionNight();
+                if (surface != null)
+                {
+                    surface.SetNightState(material, true, opacity);
                 }
             }
 
-            bool rimWanted = GlassGlobeSettingsState.DisplayCategoryEnabled &&
-                GlassGlobeSettingsState.RimGlowEnabled;
-            material.SetFloat(RimIntensityId, rimWanted ? rimIntensity : 0f);
-            RimGlowStatus = rimWanted ? "Visible" : "Hidden";
             return true;
         }
 
@@ -150,6 +177,16 @@ namespace GlassGlobe
             MeshRenderer meshRenderer = globe.GetComponent<MeshRenderer>();
             globeMaterial = meshRenderer != null ? meshRenderer.sharedMaterial : null;
             return globeMaterial;
+        }
+
+        private NightTileSurface ResolveFullResolutionNight()
+        {
+            if (fullResolutionNight == null)
+            {
+                fullResolutionNight = NightTileSurface.EnsureInstance(globe);
+            }
+
+            return fullResolutionNight;
         }
 
         private Texture2D ResolveNightTexture()
