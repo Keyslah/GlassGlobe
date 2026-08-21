@@ -1,0 +1,80 @@
+name: Validate Earth at Night source
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify source image and integration invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "d87de751a264e4f8ff69c68de5dab9606daee87a6f15ae743c93200743bd7ec1  Assets/GlassGlobe/Resources/GlassGlobeNightLights.jpg" | sha256sum -c -
+          grep -Fq '_NightOpacity ("Earth at Night Opacity"' Assets/GlassGlobe/Shaders/GlassGlobeTransparentGlobe.shader
+          grep -Fq 'Cull Back' Assets/GlassGlobe/Shaders/GlassGlobeTransparentGlobe.shader
+          grep -Fq 'output.uv = float2(1.0 - input.uv.x, input.uv.y);' Assets/GlassGlobe/Shaders/GlassGlobeTransparentGlobe.shader
+          grep -Fq 'color.rgb = lerp(color.rgb, nightMap, nightOpacity);' Assets/GlassGlobe/Shaders/GlassGlobeTransparentGlobe.shader
+          if grep -R --line-number '_NightIntensity' Assets/GlassGlobe/Scripts Assets/GlassGlobe/Shaders; then
+            echo 'Retired additive Night Lights path is still referenced.' >&2
+            exit 1
+          fi
+          grep -Fq 'EarthAtNightEnabledV2' Assets/GlassGlobe/Scripts/GlassGlobeSettingsState.cs
+          grep -Fq 'Earth at Night transparency' Assets/GlassGlobe/Scripts/GlassGlobeSettingsController.Pages.cs
+          grep -Fq 'ConfigureEarthAtNightTexture();' Assets/Editor/GlassGlobeProjectBuilder.cs
+          grep -Fq 'GlassGlobe/Run Earth at Night Checks' Assets/Editor/GlassGlobeEarthAtNightChecks.cs
+          git diff --check origin/master...HEAD
+
+      - name: Parse all C sharp source with Roslyn
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet new console --framework net8.0 --output /tmp/glassglobe-syntax --force >/dev/null
+          dotnet add /tmp/glassglobe-syntax package Microsoft.CodeAnalysis.CSharp --version 4.14.0 >/dev/null
+          cat > /tmp/glassglobe-syntax/Program.cs <<'CS'
+          using System;
+          using System.IO;
+          using System.Linq;
+          using Microsoft.CodeAnalysis;
+          using Microsoft.CodeAnalysis.CSharp;
+
+          string root = Environment.GetEnvironmentVariable("GITHUB_WORKSPACE")
+              ?? Directory.GetCurrentDirectory();
+          string assets = Path.Combine(root, "Assets");
+          int errors = 0;
+          foreach (string path in Directory.EnumerateFiles(
+              assets, "*.cs", SearchOption.AllDirectories).OrderBy(value => value))
+          {
+              string source = File.ReadAllText(path);
+              SyntaxTree tree = CSharpSyntaxTree.ParseText(
+                  source,
+                  CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest),
+                  path);
+              foreach (Diagnostic diagnostic in tree.GetDiagnostics()
+                  .Where(item => item.Severity == DiagnosticSeverity.Error))
+              {
+                  Console.Error.WriteLine(diagnostic);
+                  errors++;
+              }
+          }
+
+          if (errors != 0)
+          {
+              Console.Error.WriteLine($"C# syntax validation failed with {errors} error(s).");
+              Environment.Exit(1);
+          }
+
+          Console.WriteLine("All Assets C# files parsed without syntax errors.");
+          CS
+          dotnet run --project /tmp/glassglobe-syntax --configuration Release
