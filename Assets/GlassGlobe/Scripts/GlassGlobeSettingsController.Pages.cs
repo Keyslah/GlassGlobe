@@ -255,6 +255,24 @@ namespace GlassGlobe
                     268f);
             }
 
+            GUILayout.Space(14f);
+            DrawCheckbox(
+                "Earth at Night",
+                GlassGlobeSettingsState.NightLightsEnabled,
+                delegate
+                {
+                    SetNightLightsEnabled(
+                        !GlassGlobeSettingsState.NightLightsEnabled);
+                });
+            if (GlassGlobeSettingsState.NightLightsEnabled)
+            {
+                DrawOpacityRow(
+                    "Earth at Night transparency",
+                    GlassGlobeSettingsState.NightLightsOpacity,
+                    delegate (float value) { SetNightLightsOpacity(value); },
+                    268f);
+            }
+
             GUILayout.Space(18f);
             DrawCheckbox(
                 "Milky Way Galaxy",

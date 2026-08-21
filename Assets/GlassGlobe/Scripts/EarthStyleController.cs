@@ -3,20 +3,20 @@ using UnityEngine;
 namespace GlassGlobe
 {
     /// <summary>
-    /// Applies the Earth Styles settings (night lights, rim glow) to the globe
-    /// material. Attached at runtime by GlassGlobeSettingsController, so the
-    /// generated preview scene keeps working without a hand-maintained
-    /// reference. The night-lights map ships in Resources so it is never
-    /// stripped from device builds.
+    /// Applies the Earth at Night surface and the legacy rim-glow setting to the
+    /// same globe material used by Blue Marble. The Black Marble image is a real
+    /// surface blend, not the old additive glow experiment, so its transparency
+    /// behaves exactly like the Blue Marble transparency control.
     /// </summary>
     public sealed class EarthStyleController : MonoBehaviour
     {
         private const string NightTextureResource = "GlassGlobeNightLights";
 
-        public GlobeRenderer globe;
+        private static readonly int NightTextureId = Shader.PropertyToID("_NightTex");
+        private static readonly int NightOpacityId = Shader.PropertyToID("_NightOpacity");
+        private static readonly int RimIntensityId = Shader.PropertyToID("_RimIntensity");
 
-        [Range(0f, 3f)]
-        public float nightIntensity = 1.6f;
+        public GlobeRenderer globe;
 
         [Range(0f, 3f)]
         public float rimIntensity = 0.9f;
@@ -24,6 +24,7 @@ namespace GlassGlobe
         public string NightLightsStatus { get; private set; }
         public string RimGlowStatus { get; private set; }
 
+        private Material globeMaterial;
         private Texture2D nightTexture;
         private bool nightTextureLoadAttempted;
 
@@ -56,53 +57,80 @@ namespace GlassGlobe
             ApplySettings();
         }
 
-        public void ApplySettings()
+        private void OnDestroy()
+        {
+            ReleaseNightTexture(globeMaterial);
+        }
+
+        /// <summary>
+        /// Pushes Earth at Night onto the globe. Returns false only when the
+        /// globe material is not ready, allowing the settings controller to retry
+        /// on the next update instead of silently treating the change as applied.
+        /// </summary>
+        public bool ApplySettings()
         {
             Material material = ResolveGlobeMaterial();
             if (material == null)
             {
                 NightLightsStatus = "Globe material not found";
                 RimGlowStatus = "Globe material not found";
-                return;
+                return false;
             }
 
-            if (!material.HasProperty("_NightIntensity") || !material.HasProperty("_RimIntensity"))
+            if (!material.HasProperty(NightTextureId) ||
+                !material.HasProperty(NightOpacityId) ||
+                !material.HasProperty(RimIntensityId))
             {
-                NightLightsStatus = "Globe shader does not support Earth styles";
+                NightLightsStatus = "Globe shader does not support Earth at Night";
                 RimGlowStatus = "Globe shader does not support Earth styles";
-                return;
+                return false;
             }
 
             // Seen from inside the glass Earth, the far-side surface is nearer
-            // to the camera than the weather shells above it (clouds 3004,
-            // radar 3006), so the globe draws last or its lights wash out.
+            // to the camera than the weather shells. Draw the globe after those
+            // shells so a visible night surface is not buried beneath them.
             material.renderQueue = 3008;
 
-            bool nightWanted = GlassGlobeSettingsState.NightLightsEnabled;
-            Texture2D texture = nightWanted ? ResolveNightTexture() : nightTexture;
-            if (nightWanted && texture == null)
+            bool nightWanted = GlassGlobeSettingsState.EffectiveNightLightsEnabled;
+            if (!nightWanted)
             {
-                material.SetFloat("_NightIntensity", 0f);
-                NightLightsStatus = "Night-lights map missing from Resources";
+                material.SetFloat(NightOpacityId, 0f);
+                ReleaseNightTexture(material);
+                NightLightsStatus = "Hidden";
             }
             else
             {
-                if (texture != null)
+                Texture2D texture = ResolveNightTexture();
+                if (texture == null)
                 {
-                    material.SetTexture("_NightTex", texture);
+                    material.SetFloat(NightOpacityId, 0f);
+                    NightLightsStatus = "NASA Black Marble map missing from Resources";
                 }
-
-                material.SetFloat("_NightIntensity", nightWanted ? nightIntensity : 0f);
-                NightLightsStatus = nightWanted ? "Visible (NASA Black Marble)" : "Hidden";
+                else
+                {
+                    float opacity = GlassGlobeSettingsState.NightLightsOpacity;
+                    material.SetTexture(NightTextureId, texture);
+                    material.SetFloat(NightOpacityId, opacity);
+                    NightLightsStatus = string.Format(
+                        "Visible (NASA Black Marble 2016). Opacity {0:0}%",
+                        opacity * 100f);
+                }
             }
 
-            bool rimWanted = GlassGlobeSettingsState.RimGlowEnabled;
-            material.SetFloat("_RimIntensity", rimWanted ? rimIntensity : 0f);
+            bool rimWanted = GlassGlobeSettingsState.DisplayCategoryEnabled &&
+                GlassGlobeSettingsState.RimGlowEnabled;
+            material.SetFloat(RimIntensityId, rimWanted ? rimIntensity : 0f);
             RimGlowStatus = rimWanted ? "Visible" : "Hidden";
+            return true;
         }
 
         private Material ResolveGlobeMaterial()
         {
+            if (globeMaterial != null)
+            {
+                return globeMaterial;
+            }
+
             if (globe == null)
             {
                 globe = FindFirstObjectByType<GlobeRenderer>();
@@ -115,11 +143,13 @@ namespace GlassGlobe
 
             if (globe.globeMaterial != null)
             {
-                return globe.globeMaterial;
+                globeMaterial = globe.globeMaterial;
+                return globeMaterial;
             }
 
             MeshRenderer meshRenderer = globe.GetComponent<MeshRenderer>();
-            return meshRenderer != null ? meshRenderer.sharedMaterial : null;
+            globeMaterial = meshRenderer != null ? meshRenderer.sharedMaterial : null;
+            return globeMaterial;
         }
 
         private Texture2D ResolveNightTexture()
@@ -133,10 +163,30 @@ namespace GlassGlobe
             nightTexture = Resources.Load<Texture2D>(NightTextureResource);
             if (nightTexture == null)
             {
-                Debug.LogWarning("EarthStyleController: night-lights texture not found at Resources/" + NightTextureResource + ".");
+                Debug.LogWarning(
+                    "EarthStyleController: Earth at Night texture not found at Resources/" +
+                    NightTextureResource + ".");
             }
 
             return nightTexture;
+        }
+
+        private void ReleaseNightTexture(Material material)
+        {
+            if (nightTexture == null)
+            {
+                nightTextureLoadAttempted = false;
+                return;
+            }
+
+            if (material != null && material.HasProperty(NightTextureId))
+            {
+                material.SetTexture(NightTextureId, null);
+            }
+
+            Resources.UnloadAsset(nightTexture);
+            nightTexture = null;
+            nightTextureLoadAttempted = false;
         }
     }
 }

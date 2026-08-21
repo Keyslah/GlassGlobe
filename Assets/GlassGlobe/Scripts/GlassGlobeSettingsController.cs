@@ -145,6 +145,8 @@ namespace GlassGlobe
         private string saveSetName = "My settings";
         private bool nightLightsSettingApplied;
         private bool appliedNightLightsSetting;
+        private bool nightLightsOpacitySettingApplied;
+        private float appliedNightLightsOpacity;
         private bool rimGlowSettingApplied;
         private bool appliedRimGlowSetting;
         private bool weatherCloudsSettingApplied;
@@ -490,6 +492,7 @@ namespace GlassGlobe
             sunSettingApplied = false;
             moonSettingApplied = false;
             nightLightsSettingApplied = false;
+            nightLightsOpacitySettingApplied = false;
             rimGlowSettingApplied = false;
             weatherCloudsSettingApplied = false;
             weatherRadarSettingApplied = false;
@@ -625,6 +628,20 @@ namespace GlassGlobe
         {
             blueMarbleSettingsDirty = true;
             ApplyBlueMarbleSettings();
+        }
+
+        private void SetNightLightsEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetNightLightsEnabled(value);
+            nightLightsSettingApplied = false;
+            ApplyEarthStyleSettings();
+        }
+
+        private void SetNightLightsOpacity(float value)
+        {
+            GlassGlobeSettingsState.SetNightLightsOpacity(value);
+            nightLightsOpacitySettingApplied = false;
+            ApplyEarthStyleSettings();
         }
 
         private void SetWaterArtEnabled(bool value)
@@ -1046,19 +1063,32 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desiredNight = GlassGlobeSettingsState.DisplayCategoryEnabled &&
-                GlassGlobeSettingsState.NightLightsEnabled;
+            bool desiredNight = GlassGlobeSettingsState.EffectiveNightLightsEnabled;
+            float desiredNightOpacity = desiredNight
+                ? GlassGlobeSettingsState.NightLightsOpacity
+                : 0f;
             bool desiredRim = GlassGlobeSettingsState.DisplayCategoryEnabled &&
                 GlassGlobeSettingsState.RimGlowEnabled;
             if (nightLightsSettingApplied && appliedNightLightsSetting == desiredNight &&
+                nightLightsOpacitySettingApplied &&
+                Mathf.Approximately(appliedNightLightsOpacity, desiredNightOpacity) &&
                 rimGlowSettingApplied && appliedRimGlowSetting == desiredRim)
             {
                 return;
             }
 
-            earthStyle.ApplySettings();
+            // Do not record the state as applied until the globe material accepts
+            // it. Startup can reach this controller before GlobeRenderer has
+            // finished rebuilding its material, and that must be retried.
+            if (!earthStyle.ApplySettings())
+            {
+                return;
+            }
+
             appliedNightLightsSetting = desiredNight;
             nightLightsSettingApplied = true;
+            appliedNightLightsOpacity = desiredNightOpacity;
+            nightLightsOpacitySettingApplied = true;
             appliedRimGlowSetting = desiredRim;
             rimGlowSettingApplied = true;
         }

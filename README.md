@@ -16,6 +16,8 @@ way through.
 - **Blue Marble surface** — NASA satellite imagery on the globe, in four seasons,
   with adjustable transparency and a season button on the viewport. Only the
   selected season is loaded into runtime texture memory.
+- **Earth at Night surface** — NASA Black Marble 2016 imagery, independently
+  toggleable over Blue Moon or Blue Marble with adjustable transparency.
 - **Sky** — the Milky Way, Sun, and Moon at their true positions for your location
   and the current time, with the Moon showing its real phase.
 - **Live data** — satellite clouds and rain radar, the ISS and Tiangong, and
@@ -101,6 +103,13 @@ Stöckli, NASA Goddard Space Flight Center — public domain. The four seasons a
 | Spring | `world.topo.bathy.200404.3x5400x2700.jpg` | [73655](https://visibleearth.nasa.gov/images/73655/) |
 | Summer | `world.topo.bathy.200407.3x5400x2700.jpg` | [73751](https://visibleearth.nasa.gov/images/73751/) |
 | Fall | `world.topo.bathy.200410.3x5400x2700.jpg` | [73826](https://visibleearth.nasa.gov/images/73826/) |
+
+**Earth at Night:** [NASA Earth Observatory Black Marble 2016 color map](https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/),
+using the global 0.1-degree `BlackMarble_2016_01deg.jpg` composite
+(3600×1800). NASA Earth Observatory image by Joshua Stevens using Suomi NPP
+VIIRS data from Miguel Román, NASA Goddard Space Flight Center. The repository
+keeps the source image byte-for-byte; `GlassGlobeEarthAtNightChecks` verifies its
+SHA-256 before a release build.
 
 **Milky Way panorama:** [ESO/S. Brunier](https://www.eso.org/public/images/eso0932a/)
 (eso0932a), CC BY 4.0. The panorama is authored in galactic coordinates; the app

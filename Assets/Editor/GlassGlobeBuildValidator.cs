@@ -122,6 +122,38 @@ public static class GlassGlobeBuildValidator
             LogRequired(ref errors, earthquakes.markerMaterial != null, "GlassGlobeBuildValidator: EarthquakeOverlay marker material is not assigned, the sprite shader would be stripped.");
         }
 
+        EarthStyleController earthAtNight = FindInScene<EarthStyleController>(scene);
+        LogRequired(
+            ref errors,
+            earthAtNight != null,
+            "GlassGlobeBuildValidator: missing EarthStyleController on the globe.");
+
+        Texture2D nightTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+            "Assets/GlassGlobe/Resources/GlassGlobeNightLights.jpg");
+        LogRequired(
+            ref errors,
+            nightTexture != null,
+            "GlassGlobeBuildValidator: Earth at Night Resources texture is missing.");
+        if (nightTexture != null)
+        {
+            LogRequired(
+                ref errors,
+                nightTexture.width == 3600 && nightTexture.height == 1800,
+                "GlassGlobeBuildValidator: Earth at Night must import at its native 3600x1800 size.");
+        }
+
+        if (globe != null && globe.globeMaterial != null)
+        {
+            LogRequired(
+                ref errors,
+                globe.globeMaterial.HasProperty("_NightTex"),
+                "GlassGlobeBuildValidator: globe shader is missing _NightTex.");
+            LogRequired(
+                ref errors,
+                globe.globeMaterial.HasProperty("_NightOpacity"),
+                "GlassGlobeBuildValidator: globe shader is missing _NightOpacity.");
+        }
+
         BlueMarbleSurface blueMarble = FindInScene<BlueMarbleSurface>(scene);
         LogRequired(ref errors, blueMarble != null, "GlassGlobeBuildValidator: missing BlueMarbleSurface on the globe.");
         LogRequired(ref errors, HasBlueMarbleResource("Spring"), "GlassGlobeBuildValidator: Blue Marble spring Resources texture is missing.");

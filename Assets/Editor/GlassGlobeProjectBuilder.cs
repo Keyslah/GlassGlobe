@@ -50,6 +50,7 @@ public static class GlassGlobeProjectBuilder
 
         EarthStyleController earthStyle = globeObject.AddComponent<EarthStyleController>();
         earthStyle.globe = globe;
+        ConfigureEarthAtNightTexture();
 
         BlueMarbleSurface blueMarble = globeObject.AddComponent<BlueMarbleSurface>();
         blueMarble.globe = globe;
@@ -377,6 +378,72 @@ public static class GlassGlobeProjectBuilder
         }
 
         Debug.Log("GlassGlobeProjectBuilder: BuildPreviewScene completed successfully. Scene saved to " + ScenePath);
+    }
+
+    /// <summary>
+    /// Preserves the official 3600x1800 NASA Black Marble map without an
+    /// unnecessary power-of-two rescale and gives Android the same ASTC 6x6
+    /// treatment as Blue Marble. Longitude repeats at the antimeridian while
+    /// latitude clamps at the poles.
+    /// </summary>
+    private static void ConfigureEarthAtNightTexture()
+    {
+        string path = GlassGlobeRoot + "/Resources/GlassGlobeNightLights.jpg";
+        TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (importer == null)
+        {
+            Debug.LogWarning(
+                "GlassGlobeProjectBuilder: Earth at Night texture not found at " + path + ".");
+            return;
+        }
+
+        TextureImporterPlatformSettings android =
+            importer.GetPlatformTextureSettings("Android");
+        bool androidNeedsUpdate =
+            !android.overridden ||
+            android.maxTextureSize != 4096 ||
+            android.format != TextureImporterFormat.ASTC_6x6;
+
+        bool needsUpdate =
+            androidNeedsUpdate ||
+            !importer.mipmapEnabled ||
+            importer.isReadable ||
+            importer.streamingMipmaps ||
+            importer.maxTextureSize != 4096 ||
+            importer.npotScale != TextureImporterNPOTScale.None ||
+            importer.wrapModeU != TextureWrapMode.Repeat ||
+            importer.wrapModeV != TextureWrapMode.Clamp ||
+            importer.anisoLevel != 4 ||
+            !importer.sRGBTexture;
+
+        if (!needsUpdate)
+        {
+            return;
+        }
+
+        importer.textureType = TextureImporterType.Default;
+        importer.sRGBTexture = true;
+        importer.mipmapEnabled = true;
+        importer.isReadable = false;
+        importer.streamingMipmaps = false;
+        importer.maxTextureSize = 4096;
+        importer.npotScale = TextureImporterNPOTScale.None;
+        importer.wrapModeU = TextureWrapMode.Repeat;
+        importer.wrapModeV = TextureWrapMode.Clamp;
+        importer.anisoLevel = 4;
+        importer.textureCompression = TextureImporterCompression.Compressed;
+
+        android.overridden = true;
+        android.maxTextureSize = 4096;
+        android.format = TextureImporterFormat.ASTC_6x6;
+        android.textureCompression = TextureImporterCompression.Compressed;
+        android.compressionQuality = (int)TextureCompressionQuality.Normal;
+        importer.SetPlatformTextureSettings(android);
+
+        importer.SaveAndReimport();
+        Debug.Log(
+            "GlassGlobeProjectBuilder: preserved Earth at Night at 3600x1800 " +
+            "with Android ASTC 6x6.");
     }
 
     /// <summary>

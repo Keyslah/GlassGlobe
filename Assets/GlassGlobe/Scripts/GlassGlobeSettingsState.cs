@@ -69,7 +69,12 @@ namespace GlassGlobe
         private const string BlueMarbleSeasonKey = Prefix + "BlueMarbleSeason";
         private const string BlueMarbleOpacityKey = Prefix + "BlueMarbleOpacity";
         private const string SeasonButtonKey = Prefix + "SeasonButton";
-        private const string NightLightsKey = Prefix + "NightLights";
+        // V2 deliberately does not reuse the old NightLights key. The original
+        // additive experiment did not render reliably, so stale preferences from
+        // that build must not unexpectedly switch this replacement on.
+        private const string LegacyNightLightsKey = Prefix + "NightLights";
+        private const string NightLightsKey = Prefix + "EarthAtNightEnabledV2";
+        private const string NightLightsOpacityKey = Prefix + "EarthAtNightOpacityV1";
         private const string RimGlowKey = Prefix + "RimGlow";
         private const string WaterArtKey = Prefix + "WaterArt";
         private const string WaterArtOpacityKey = Prefix + "WaterArtOpacity";
@@ -136,6 +141,7 @@ namespace GlassGlobe
         public static float BlueMarbleOpacity { get; private set; }
         public static bool SeasonButtonVisible { get; private set; }
         public static bool NightLightsEnabled { get; private set; }
+        public static float NightLightsOpacity { get; private set; }
         public static bool RimGlowEnabled { get; private set; }
         public static bool WaterArtEnabled { get; private set; }
         public static float WaterArtOpacity { get; private set; }
@@ -175,6 +181,15 @@ namespace GlassGlobe
             {
                 Load();
                 return DisplayCategoryEnabled && GlobeSurface == GlobeSurfaceMode.BlueMarble;
+            }
+        }
+
+        public static bool EffectiveNightLightsEnabled
+        {
+            get
+            {
+                Load();
+                return DisplayCategoryEnabled && NightLightsEnabled;
             }
         }
 
@@ -335,7 +350,9 @@ namespace GlassGlobe
             new PrefEntry(BlueMarbleSeasonKey, PrefKind.Number),
             new PrefEntry(BlueMarbleOpacityKey, PrefKind.Decimal),
             new PrefEntry(SeasonButtonKey, PrefKind.Number),
+            new PrefEntry(LegacyNightLightsKey, PrefKind.Number, false),
             new PrefEntry(NightLightsKey, PrefKind.Number),
+            new PrefEntry(NightLightsOpacityKey, PrefKind.Decimal),
             new PrefEntry(RimGlowKey, PrefKind.Number),
             new PrefEntry(WaterArtKey, PrefKind.Number),
             new PrefEntry(WaterArtOpacityKey, PrefKind.Decimal),
@@ -606,7 +623,9 @@ namespace GlassGlobe
                 (int)BlueMarbleSeason.Winter);
             BlueMarbleOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(BlueMarbleOpacityKey, 1f));
             SeasonButtonVisible = ReadBool(SeasonButtonKey, true);
-            NightLightsEnabled = false;
+            NightLightsEnabled = ReadBool(NightLightsKey, false);
+            NightLightsOpacity = Mathf.Clamp01(
+                PlayerPrefs.GetFloat(NightLightsOpacityKey, 1f));
             RimGlowEnabled = false;
             WaterArtEnabled = ReadBool(WaterArtKey, true);
             WaterArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(WaterArtOpacityKey, 0.35f));
@@ -846,6 +865,20 @@ namespace GlassGlobe
             Load();
             BlueMarbleOpacity = Mathf.Clamp01(value);
             WriteFloat(BlueMarbleOpacityKey, BlueMarbleOpacity);
+        }
+
+        public static void SetNightLightsEnabled(bool value)
+        {
+            Load();
+            NightLightsEnabled = value;
+            WriteBool(NightLightsKey, value);
+        }
+
+        public static void SetNightLightsOpacity(float value)
+        {
+            Load();
+            NightLightsOpacity = Mathf.Clamp01(value);
+            WriteFloat(NightLightsOpacityKey, NightLightsOpacity);
         }
 
         public static void SetWaterArtEnabled(bool value)
