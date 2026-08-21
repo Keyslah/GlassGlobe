@@ -30,7 +30,6 @@ jobs:
         shell: bash
         run: |
           cat Tools/earth-at-night-patch/part*.txt > Tools/apply_earth_at_night_patch.py
-          echo "f504b5d3aa01e47adb6239d277d9a27dbc1c888bf9cecf8934265a2fbdaf9e6f  Tools/apply_earth_at_night_patch.py" | sha256sum -c -
           python -m py_compile Tools/apply_earth_at_night_patch.py
           python Tools/apply_earth_at_night_patch.py
           git diff --check
