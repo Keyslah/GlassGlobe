@@ -1,4 +1,5 @@
 using UnityEditor;
+using UnityEditor.XR.ARCore;
 using UnityEditor.XR.Management;
 using UnityEditor.XR.Management.Metadata;
 using UnityEngine;
@@ -85,6 +86,14 @@ public static class GlassGlobeArCoreProjectSetup
                 BuildTargetGroup.Android);
         }
 
+        ARCoreSettings arCoreSettings = ARCoreSettings.GetOrCreateSettings();
+        arCoreSettings.requirement = ARCoreSettings.Requirement.Optional;
+        arCoreSettings.depth = ARCoreSettings.Requirement.Optional;
+        if (ARCoreSettings.currentSettings != arCoreSettings)
+        {
+            ARCoreSettings.currentSettings = arCoreSettings;
+        }
+
         PlayerSettings.Android.minSdkVersion =
             AndroidSdkVersions.AndroidApiLevel25;
 
@@ -100,12 +109,13 @@ public static class GlassGlobeArCoreProjectSetup
         EditorUtility.SetDirty(perBuildTarget);
         EditorUtility.SetDirty(generalSettings);
         EditorUtility.SetDirty(managerSettings);
+        EditorUtility.SetDirty(arCoreSettings);
         AssetDatabase.SaveAssets();
 
         if (loaderAssigned)
         {
             Debug.Log(
-                "GlassGlobe ARCore setup: Android loader enabled; OpenGL ES 3 selected; runtime camera tracking starts on demand.");
+                "GlassGlobe ARCore setup: ARCore and depth are optional; Android loader enabled; OpenGL ES 3 selected; runtime camera tracking starts on demand.");
         }
         else
         {
