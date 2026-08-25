@@ -5,9 +5,9 @@ Shader "GlassGlobe/Transparent Globe"
         _Color ("Color", Color) = (0.05, 0.24, 0.32, 0.16)
         _BlueMarbleTex ("Blue Marble Map", 2D) = "black" {}
         _BlueMarbleOpacity ("Blue Marble Opacity", Range(0, 1)) = 0
-        _NightTex ("Night Lights Map", 2D) = "black" {}
-        _NightTint ("Night Lights Tint", Color) = (1, 0.87, 0.62, 1)
-        _NightIntensity ("Night Lights Intensity", Range(0, 3)) = 0
+        _NightTex ("Earth at Night Map", 2D) = "black" {}
+        _NightCoverageTex ("Full-Resolution Night Coverage", 2D) = "black" {}
+        _NightOpacity ("Earth at Night Opacity", Range(0, 1)) = 0
         _RimColor ("Rim Glow Color", Color) = (0.35, 0.78, 1, 0.85)
         _RimIntensity ("Rim Glow Intensity", Range(0, 3)) = 0
         _RimPower ("Rim Glow Falloff", Range(0.5, 8)) = 3
@@ -29,9 +29,8 @@ Shader "GlassGlobe/Transparent Globe"
             // GlobeRenderer.BuildSphereMesh uses +sin(lon) while the art and
             // weather shells use EarthMath.GeoToPoint's mirrored -sin(lon), so
             // this mesh winds the opposite way and needs the opposite cull from
-            // those shells. With Cull Front this pass drew the near hemisphere
-            // and sampled the map under the observer's feet - invisible while
-            // the glass was a flat 6% tint, wrong as soon as it carries a map.
+            // those shells. Cull Front was the central failure in the original
+            // Night Lights experiment: it sampled the surface under the user.
             Cull Back
 
             CGPROGRAM
@@ -58,8 +57,8 @@ Shader "GlassGlobe/Transparent Globe"
             sampler2D _BlueMarbleTex;
             half _BlueMarbleOpacity;
             sampler2D _NightTex;
-            fixed4 _NightTint;
-            half _NightIntensity;
+            sampler2D _NightCoverageTex;
+            half _NightOpacity;
             fixed4 _RimColor;
             half _RimIntensity;
             half _RimPower;
@@ -70,7 +69,7 @@ Shader "GlassGlobe/Transparent Globe"
                 output.position = UnityObjectToClipPos(input.position);
                 // The sphere mesh maps longitude with +sin(lon) while EarthMath
                 // uses the mirrored -sin(lon) embedding for physical truth, so
-                // flip U to keep the map aligned with the border lines.
+                // flip U to keep both NASA maps aligned with the border lines.
                 output.uv = float2(1.0 - input.uv.x, input.uv.y);
                 output.worldNormal = UnityObjectToWorldNormal(input.normal);
                 output.worldPosition = mul(unity_ObjectToWorld, input.position).xyz;
@@ -81,23 +80,34 @@ Shader "GlassGlobe/Transparent Globe"
             {
                 fixed4 color = _Color;
 
-                // Blue Marble sits between the glass tint and the night/rim
-                // layers: at 0 the glass is untouched, at 1 the daylight map is
-                // fully opaque. It shares input.uv, so it inherits the same
-                // mirrored-longitude correction as the night-lights map.
                 fixed3 marble = tex2D(_BlueMarbleTex, input.uv).rgb;
-                color.rgb = lerp(color.rgb, marble, _BlueMarbleOpacity);
-                color.a = lerp(color.a, 1.0, _BlueMarbleOpacity);
+                half marbleOpacity = saturate(_BlueMarbleOpacity);
+                color.rgb = lerp(color.rgb, marble, marbleOpacity);
+                color.a = lerp(color.a, 1.0, marbleOpacity);
 
-                fixed3 night = tex2D(_NightTex, input.uv).rgb * _NightTint.rgb * _NightIntensity;
-                half nightLuminance = dot(night, half3(0.299, 0.587, 0.114));
+                // Earth at Night is a true surface blend. The old version added
+                // every RGB value as light, which washed the glass blue while the
+                // actual city lights remained weak. A lerp makes 100% reproduce
+                // the official Black Marble image and lower values transparently
+                // reveal Blue Moon or Blue Marble beneath it.
+                fixed3 nightMap = tex2D(_NightTex, input.uv).rgb;
+                // Android region-decodes the literal 500 m NASA source only
+                // where the phone is looking. Keep this global map as an
+                // immediate fallback, but suppress it beneath a loaded tile so
+                // the later tile pass performs exactly one night-surface blend.
+                half fullResolutionCoverage =
+                    saturate(tex2D(_NightCoverageTex, input.uv).r);
+                half nightOpacity =
+                    saturate(_NightOpacity) * (1.0 - fullResolutionCoverage);
+                color.rgb = lerp(color.rgb, nightMap, nightOpacity);
+                color.a = lerp(color.a, 1.0, nightOpacity);
 
                 float3 viewDirection = normalize(_WorldSpaceCameraPos - input.worldPosition);
                 half facing = abs(dot(viewDirection, normalize(input.worldNormal)));
                 half rim = pow(saturate(1.0 - facing), _RimPower) * _RimIntensity;
 
-                color.rgb += night + _RimColor.rgb * rim;
-                color.a = saturate(color.a + nightLuminance + rim * _RimColor.a);
+                color.rgb += _RimColor.rgb * rim;
+                color.a = saturate(color.a + rim * _RimColor.a);
                 return color;
             }
             ENDCG

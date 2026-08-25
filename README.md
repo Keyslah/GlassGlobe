@@ -15,7 +15,12 @@ way through.
   center dot is on.
 - **Blue Marble surface** — NASA satellite imagery on the globe, in four seasons,
   with adjustable transparency and a season button on the viewport. Only the
-  selected season is loaded into runtime texture memory.
+  selected season is loaded into runtime texture memory. Summer uses NASA's
+  official July 21600×10800 source, imported at 16384×8192.
+- **Earth at Night surface** — NASA Black Marble 2016 imagery, independently
+  toggleable over Blue Moon or Blue Marble with adjustable transparency. On
+  Android, the complete 500m source map is region-decoded from eight tiles while
+  the global 3600×1800 map remains available as a fallback.
 - **Sky** — the Milky Way, Sun, and Moon at their true positions for your location
   and the current time, with the Moon showing its real phase.
 - **Live data** — satellite clouds and rain radar, the ISS and Tiangong, and
@@ -93,14 +98,28 @@ largest is kept, since this drives a viewpoint picker rather than a gazetteer.
 **Globe surface:** [NASA Earth Observatory Blue Marble Next
 Generation](https://visibleearth.nasa.gov/collection/1484/blue-marble), Reto
 Stöckli, NASA Goddard Space Flight Center — public domain. The four seasons are
-`world.topo.bathy` monthly composites, downsampled from 5400×2700 to 4096×2048:
+`world.topo.bathy` monthly composites. Winter, spring, and fall are downsampled
+from 5400×2700 to 4096×2048. Summer uses the official July 21600×10800 source,
+imported at 16384×8192:
 
 | Season | Source composite | Image record |
 | --- | --- | --- |
 | Winter | `world.topo.bathy.200401.3x5400x2700.jpg` | [73580](https://visibleearth.nasa.gov/images/73580/) |
 | Spring | `world.topo.bathy.200404.3x5400x2700.jpg` | [73655](https://visibleearth.nasa.gov/images/73655/) |
-| Summer | `world.topo.bathy.200407.3x5400x2700.jpg` | [73751](https://visibleearth.nasa.gov/images/73751/) |
+| Summer | `world.topo.bathy.200407.3x21600x10800.jpg` | [73751](https://visibleearth.nasa.gov/images/73751/) |
 | Fall | `world.topo.bathy.200410.3x5400x2700.jpg` | [73826](https://visibleearth.nasa.gov/images/73826/) |
+
+**Earth at Night:** [NASA Earth Observatory Black Marble 2016 color map](https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/),
+using the global 0.1-degree `BlackMarble_2016_01deg.jpg` composite (3600×1800)
+as a fallback plus the complete 500m source map. The full-resolution map is a
+4×2 grid of eight official `BlackMarble_2016_A1.jpg` through
+`BlackMarble_2016_D2.jpg` source JPEGs, each 21600×21600. Their exact JPEG bytes
+are stored in `Assets/StreamingAssets/GlassGlobeNightFullRes/` with
+`.resource` names so Unity does not import the oversized sources as textures.
+Android region-decodes the required source areas at runtime instead. NASA Earth
+Observatory images by Joshua Stevens, using Suomi NPP VIIRS data from Miguel
+Román, NASA Goddard Space Flight Center. `GlassGlobeEarthAtNightChecks` verifies
+the NASA source files before a release build.
 
 **Milky Way panorama:** [ESO/S. Brunier](https://www.eso.org/public/images/eso0932a/)
 (eso0932a), CC BY 4.0. The panorama is authored in galactic coordinates; the app

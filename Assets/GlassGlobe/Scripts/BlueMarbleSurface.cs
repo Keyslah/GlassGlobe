@@ -205,6 +205,10 @@ namespace GlassGlobe
             loadedTexture = texture;
             loadedResourceName = resourceName;
             ApplyLoadedTexture(material, requestedSeason);
+            Debug.Log(
+                "GlassGlobe Blue Marble " + requestedSeason + " loaded at " +
+                texture.width + "x" + texture.height +
+                "; device max texture size=" + SystemInfo.maxTextureSize + ".");
 
             if (previousTexture != null && previousTexture != texture)
             {

@@ -233,7 +233,7 @@ namespace GlassGlobe
             {
                 GUILayout.Space(10f);
                 DrawCheckbox(
-                    "Hide season button",
+                    "Hide surface button",
                     !GlassGlobeSettingsState.SeasonButtonVisible,
                     delegate
                     {
@@ -252,6 +252,24 @@ namespace GlassGlobe
                     "Blue Marble transparency",
                     GlassGlobeSettingsState.BlueMarbleOpacity,
                     delegate (float value) { SetBlueMarbleOpacity(value); },
+                    268f);
+            }
+
+            GUILayout.Space(14f);
+            DrawCheckbox(
+                "Earth at Night",
+                GlassGlobeSettingsState.NightLightsEnabled,
+                delegate
+                {
+                    SetNightLightsEnabled(
+                        !GlassGlobeSettingsState.NightLightsEnabled);
+                });
+            if (GlassGlobeSettingsState.NightLightsEnabled)
+            {
+                DrawOpacityRow(
+                    "Earth at Night transparency",
+                    GlassGlobeSettingsState.NightLightsOpacity,
+                    delegate (float value) { SetNightLightsOpacity(value); },
                     268f);
             }
 

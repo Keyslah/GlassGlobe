@@ -145,6 +145,8 @@ namespace GlassGlobe
         private string saveSetName = "My settings";
         private bool nightLightsSettingApplied;
         private bool appliedNightLightsSetting;
+        private bool nightLightsOpacitySettingApplied;
+        private float appliedNightLightsOpacity;
         private bool rimGlowSettingApplied;
         private bool appliedRimGlowSetting;
         private bool weatherCloudsSettingApplied;
@@ -300,10 +302,11 @@ namespace GlassGlobe
         }
 
         /// <summary>
-        /// Faint season button along the bottom of the viewport. It only means
-        /// anything while Blue Marble is showing, so it hides with it. Drawn in
-        /// the same UI space the touch layer reports points in, so the stored
-        /// rect can be hit-tested directly against a tap.
+        /// Faint surface button along the bottom of the viewport. It cycles the
+        /// four Blue Marble seasons plus Earth at Night, and hides when Blue
+        /// Marble is not the underlying surface. Drawn in the same UI space the
+        /// touch layer reports points in, so the stored rect can be hit-tested
+        /// directly against a tap.
         /// </summary>
         private void DrawSeasonCycleButton()
         {
@@ -329,13 +332,15 @@ namespace GlassGlobe
             GUI.color = new Color(1f, 1f, 1f, 0.4f);
             bool clicked = GUI.Button(
                 seasonCycleButtonRect,
-                GlassGlobeSettingsState.BlueMarbleSeasonChoice.ToString(),
+                ViewportSurfaceCycle.GetLabel(
+                    GlassGlobeSettingsState.NightLightsEnabled,
+                    GlassGlobeSettingsState.BlueMarbleSeasonChoice),
                 seasonButtonStyle);
             GUI.color = previousColor;
 
             if (clicked && !Application.isMobilePlatform)
             {
-                CycleBlueMarbleSeason();
+                CycleViewportSurface();
             }
         }
 
@@ -490,6 +495,7 @@ namespace GlassGlobe
             sunSettingApplied = false;
             moonSettingApplied = false;
             nightLightsSettingApplied = false;
+            nightLightsOpacitySettingApplied = false;
             rimGlowSettingApplied = false;
             weatherCloudsSettingApplied = false;
             weatherRadarSettingApplied = false;
@@ -627,6 +633,20 @@ namespace GlassGlobe
             ApplyBlueMarbleSettings();
         }
 
+        private void SetNightLightsEnabled(bool value)
+        {
+            GlassGlobeSettingsState.SetNightLightsEnabled(value);
+            nightLightsSettingApplied = false;
+            ApplyEarthStyleSettings();
+        }
+
+        private void SetNightLightsOpacity(float value)
+        {
+            GlassGlobeSettingsState.SetNightLightsOpacity(value);
+            nightLightsOpacitySettingApplied = false;
+            ApplyEarthStyleSettings();
+        }
+
         private void SetWaterArtEnabled(bool value)
         {
             GlassGlobeSettingsState.SetWaterArtEnabled(value);
@@ -702,14 +722,31 @@ namespace GlassGlobe
         }
 
         /// <summary>
-        /// Advances the Blue Marble season, wrapping round. Driven by the
-        /// viewport button so seasons can be flipped without opening settings.
+        /// Advances through Summer, Fall, Winter, Spring, and Earth at Night.
+        /// Earth at Night preserves the underlying season and both opacity
+        /// settings; leaving it advances to the following season.
         /// </summary>
-        private void CycleBlueMarbleSeason()
+        private void CycleViewportSurface()
         {
-            BlueMarbleSeason next =
-                (BlueMarbleSeason)(((int)GlassGlobeSettingsState.BlueMarbleSeasonChoice + 1) % 4);
-            SelectBlueMarbleSeason(next);
+            bool nightLightsEnabled = GlassGlobeSettingsState.NightLightsEnabled;
+            BlueMarbleSeason season = GlassGlobeSettingsState.BlueMarbleSeasonChoice;
+            bool nextNightLightsEnabled;
+            BlueMarbleSeason nextSeason;
+            ViewportSurfaceCycle.ResolveNext(
+                nightLightsEnabled,
+                season,
+                out nextNightLightsEnabled,
+                out nextSeason);
+
+            if (nextSeason != season)
+            {
+                SelectBlueMarbleSeason(nextSeason);
+            }
+
+            if (nextNightLightsEnabled != nightLightsEnabled)
+            {
+                SetNightLightsEnabled(nextNightLightsEnabled);
+            }
         }
 
         /// <summary>
@@ -1046,19 +1083,32 @@ namespace GlassGlobe
                 return;
             }
 
-            bool desiredNight = GlassGlobeSettingsState.DisplayCategoryEnabled &&
-                GlassGlobeSettingsState.NightLightsEnabled;
+            bool desiredNight = GlassGlobeSettingsState.EffectiveNightLightsEnabled;
+            float desiredNightOpacity = desiredNight
+                ? GlassGlobeSettingsState.NightLightsOpacity
+                : 0f;
             bool desiredRim = GlassGlobeSettingsState.DisplayCategoryEnabled &&
                 GlassGlobeSettingsState.RimGlowEnabled;
             if (nightLightsSettingApplied && appliedNightLightsSetting == desiredNight &&
+                nightLightsOpacitySettingApplied &&
+                Mathf.Approximately(appliedNightLightsOpacity, desiredNightOpacity) &&
                 rimGlowSettingApplied && appliedRimGlowSetting == desiredRim)
             {
                 return;
             }
 
-            earthStyle.ApplySettings();
+            // Do not record the state as applied until the globe material accepts
+            // it. Startup can reach this controller before GlobeRenderer has
+            // finished rebuilding its material, and that must be retried.
+            if (!earthStyle.ApplySettings())
+            {
+                return;
+            }
+
             appliedNightLightsSetting = desiredNight;
             nightLightsSettingApplied = true;
+            appliedNightLightsOpacity = desiredNightOpacity;
+            nightLightsOpacitySettingApplied = true;
             appliedRimGlowSetting = desiredRim;
             rimGlowSettingApplied = true;
         }

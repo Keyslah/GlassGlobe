@@ -42,14 +42,17 @@ public static class GlassGlobeProjectBuilder
         GlobeRenderer globe = globeObject.AddComponent<GlobeRenderer>();
         globe.radiusUnits = EarthMath.DefaultEarthRadiusUnits;
         globe.center = Vector3.zero;
-        globe.longitudeSegments = 128;
-        globe.latitudeSegments = 64;
+        // A 1.5-degree grid keeps every 18/9/4.5-degree night-tile edge
+        // vertex-identical to the base globe, preventing fallback seams.
+        globe.longitudeSegments = 240;
+        globe.latitudeSegments = 120;
         globe.globeMaterial = globeMaterial;
         globe.globeColor = new Color(0.01f, 0.08f, 0.10f, 0.06f);
         globe.RebuildGlobe();
 
         EarthStyleController earthStyle = globeObject.AddComponent<EarthStyleController>();
         earthStyle.globe = globe;
+        ConfigureEarthAtNightTexture();
 
         BlueMarbleSurface blueMarble = globeObject.AddComponent<BlueMarbleSurface>();
         blueMarble.globe = globe;
@@ -380,23 +383,24 @@ public static class GlassGlobeProjectBuilder
     }
 
     /// <summary>
-    /// Configures one on-demand NASA Blue Marble seasonal map so it is
-    /// imported the way the globe surface needs it: 4096x2048 with mipmaps,
-    /// no CPU copy, longitude wrapping, and ASTC on Android.
-    /// Reimport only happens when something actually differs, so repeated
-    /// scene builds stay fast.
+    /// Preserves the official 3600x1800 NASA Black Marble map without an
+    /// unnecessary power-of-two rescale and gives Android the same ASTC 6x6
+    /// treatment as Blue Marble. Longitude repeats at the antimeridian while
+    /// latitude clamps at the poles.
     /// </summary>
-    private static void ConfigureBlueMarbleTexture(string season)
+    private static void ConfigureEarthAtNightTexture()
     {
-        string path = GlassGlobeRoot + "/Resources/GlassGlobeBlueMarble" + season + ".jpg";
+        string path = GlassGlobeRoot + "/Resources/GlassGlobeNightLights.jpg";
         TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
         if (importer == null)
         {
-            Debug.LogWarning("GlassGlobeProjectBuilder: Blue Marble " + season + " texture not found at " + path + ".");
+            Debug.LogWarning(
+                "GlassGlobeProjectBuilder: Earth at Night texture not found at " + path + ".");
             return;
         }
 
-        TextureImporterPlatformSettings android = importer.GetPlatformTextureSettings("Android");
+        TextureImporterPlatformSettings android =
+            importer.GetPlatformTextureSettings("Android");
         bool androidNeedsUpdate =
             !android.overridden ||
             android.maxTextureSize != 4096 ||
@@ -414,6 +418,75 @@ public static class GlassGlobeProjectBuilder
             importer.anisoLevel != 4 ||
             !importer.sRGBTexture;
 
+        if (!needsUpdate)
+        {
+            return;
+        }
+
+        importer.textureType = TextureImporterType.Default;
+        importer.sRGBTexture = true;
+        importer.mipmapEnabled = true;
+        importer.isReadable = false;
+        importer.streamingMipmaps = false;
+        importer.maxTextureSize = 4096;
+        importer.npotScale = TextureImporterNPOTScale.None;
+        importer.wrapModeU = TextureWrapMode.Repeat;
+        importer.wrapModeV = TextureWrapMode.Clamp;
+        importer.anisoLevel = 4;
+        importer.textureCompression = TextureImporterCompression.Compressed;
+
+        android.overridden = true;
+        android.maxTextureSize = 4096;
+        android.format = TextureImporterFormat.ASTC_6x6;
+        android.textureCompression = TextureImporterCompression.Compressed;
+        android.compressionQuality = (int)TextureCompressionQuality.Normal;
+        importer.SetPlatformTextureSettings(android);
+
+        importer.SaveAndReimport();
+        Debug.Log(
+            "GlassGlobeProjectBuilder: preserved Earth at Night at 3600x1800 " +
+            "with Android ASTC 6x6.");
+    }
+
+    /// <summary>
+    /// Configures one on-demand NASA Blue Marble seasonal map so it is
+    /// imported the way the globe surface needs it: the selected 16K Summer
+    /// source at 16384x8192, the other seasons at 4096x2048, with mipmaps, no
+    /// CPU copy, longitude wrapping, and ASTC on Android.
+    /// Reimport only happens when something actually differs, so repeated
+    /// scene builds stay fast.
+    /// </summary>
+    private static void ConfigureBlueMarbleTexture(string season)
+    {
+        string path = GlassGlobeRoot + "/Resources/GlassGlobeBlueMarble" + season + ".jpg";
+        int maxTextureSize = season == "Summer"
+            ? 16384
+            : 4096;
+        TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (importer == null)
+        {
+            Debug.LogWarning("GlassGlobeProjectBuilder: Blue Marble " + season + " texture not found at " + path + ".");
+            return;
+        }
+
+        TextureImporterPlatformSettings android = importer.GetPlatformTextureSettings("Android");
+        bool androidNeedsUpdate =
+            !android.overridden ||
+            android.maxTextureSize != maxTextureSize ||
+            android.format != TextureImporterFormat.ASTC_6x6;
+
+        bool needsUpdate =
+            androidNeedsUpdate ||
+            !importer.mipmapEnabled ||
+            importer.isReadable ||
+            importer.streamingMipmaps ||
+            importer.maxTextureSize != maxTextureSize ||
+            importer.npotScale != TextureImporterNPOTScale.None ||
+            importer.wrapModeU != TextureWrapMode.Repeat ||
+            importer.wrapModeV != TextureWrapMode.Clamp ||
+            importer.anisoLevel != 4 ||
+            !importer.sRGBTexture;
+
         if (needsUpdate)
         {
             importer.textureType = TextureImporterType.Default;
@@ -425,7 +498,7 @@ public static class GlassGlobeProjectBuilder
             // the build never runs. Turn it on only together with that quality
             // setting.
             importer.streamingMipmaps = false;
-            importer.maxTextureSize = 4096;
+            importer.maxTextureSize = maxTextureSize;
             importer.npotScale = TextureImporterNPOTScale.None;
             // Equirectangular: longitude wraps at the antimeridian, latitude
             // must clamp so the poles do not bleed across.
@@ -435,14 +508,17 @@ public static class GlassGlobeProjectBuilder
             importer.textureCompression = TextureImporterCompression.Compressed;
 
             android.overridden = true;
-            android.maxTextureSize = 4096;
+            android.maxTextureSize = maxTextureSize;
             android.format = TextureImporterFormat.ASTC_6x6;
             android.textureCompression = TextureImporterCompression.Compressed;
             android.compressionQuality = (int)TextureCompressionQuality.Normal;
             importer.SetPlatformTextureSettings(android);
 
             importer.SaveAndReimport();
-            Debug.Log("GlassGlobeProjectBuilder: reimported the Blue Marble " + season + " map at 4096x2048 with Android ASTC 6x6.");
+            Debug.Log(
+                "GlassGlobeProjectBuilder: reimported the Blue Marble " +
+                season + " map with max size " + maxTextureSize +
+                " and Android ASTC 6x6.");
         }
 
     }
