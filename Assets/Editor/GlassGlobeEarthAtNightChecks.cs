@@ -19,6 +19,8 @@ public static class GlassGlobeEarthAtNightChecks
         "Assets/GlassGlobe/Resources/GlassGlobeNightLights.jpg";
     private const string SummerTexturePath =
         "Assets/GlassGlobe/Resources/GlassGlobeBlueMarbleSummer.jpg";
+    private const string HistoricalTexturePath =
+        "Assets/GlassGlobe/Resources/GlassGlobeHistoricalMelish1817.jpg";
     private const string BaseShaderPath =
         "Assets/GlassGlobe/Shaders/GlassGlobeTransparentGlobe.shader";
     private const string NightTileShaderPath =
@@ -37,6 +39,8 @@ public static class GlassGlobeEarthAtNightChecks
         "d87de751a264e4f8ff69c68de5dab9606daee87a6f15ae743c93200743bd7ec1";
     private const string ExpectedSummerSha256 =
         "D225F1F35A6448A4D1D8F6DE6E48F3433E470085B70A35800E64F384F269A7B0";
+    private const string ExpectedHistoricalSha256 =
+        "c34a82d233b192bf0ccff21654e609ccbbe64790dca5250d2843937f08b208fe";
 
     private static readonly NightSourceManifestEntry[] FullNightSourceManifest =
     {
@@ -148,6 +152,7 @@ public static class GlassGlobeEarthAtNightChecks
 
         CheckFullNightSourceManifest(ref failures);
         CheckSummerTexture(ref failures);
+        CheckHistoricalMelishTexture(ref failures);
 
         Shader shader = Shader.Find("GlassGlobe/Transparent Globe");
         Check(ref failures, shader != null, "Transparent Globe shader is missing.");
@@ -207,7 +212,8 @@ public static class GlassGlobeEarthAtNightChecks
                 "GlassGlobe Earth at Night checks passed: the official 86400x43200 " +
                 "NASA tiled night map, Android region decoder, full-resolution coverage " +
                 "suppression, 3600x1800 fallback, 16384x8192 Summer ASTC import, " +
-                "geographic seams, and viewport surface cycle are all intact.");
+                "8192x4096 Melish 1817 ASTC import, geographic seams, and viewport " +
+                "surface cycle are all intact.");
             return true;
         }
 
@@ -343,6 +349,84 @@ public static class GlassGlobeEarthAtNightChecks
                     StringComparison.OrdinalIgnoreCase),
                 "Summer globe source SHA-256 mismatch. Expected " +
                 ExpectedSummerSha256 + ", got " + actualSha256 + ".");
+        }
+    }
+
+    private static void CheckHistoricalMelishTexture(ref int failures)
+    {
+        Texture2D texture =
+            AssetDatabase.LoadAssetAtPath<Texture2D>(HistoricalTexturePath);
+        Check(ref failures, texture != null, "Melish 1817 globe texture is missing.");
+        if (texture != null)
+        {
+            Check(
+                ref failures,
+                texture.width == 8192 && texture.height == 4096,
+                "Melish 1817 globe texture must import at 8192x4096, got " +
+                texture.width + "x" + texture.height + ".");
+        }
+
+        TextureImporter importer =
+            AssetImporter.GetAtPath(HistoricalTexturePath) as TextureImporter;
+        Check(
+            ref failures,
+            importer != null,
+            "Melish 1817 globe TextureImporter is missing.");
+        if (importer != null)
+        {
+            Check(
+                ref failures,
+                importer.maxTextureSize == 8192,
+                "Melish 1817 globe default max texture size must be 8192.");
+            Check(
+                ref failures,
+                importer.sRGBTexture,
+                "Melish 1817 globe texture must import as sRGB.");
+            Check(
+                ref failures,
+                importer.mipmapEnabled,
+                "Melish 1817 globe texture mipmaps must be enabled.");
+            Check(
+                ref failures,
+                !importer.isReadable,
+                "Melish 1817 globe texture must not keep a CPU-readable copy.");
+            Check(
+                ref failures,
+                importer.npotScale == TextureImporterNPOTScale.None,
+                "Melish 1817 globe texture must preserve its native dimensions.");
+            Check(
+                ref failures,
+                importer.wrapModeU == TextureWrapMode.Repeat &&
+                importer.wrapModeV == TextureWrapMode.Clamp,
+                "Melish 1817 globe texture must repeat longitude and clamp latitude.");
+
+            TextureImporterPlatformSettings android =
+                importer.GetPlatformTextureSettings("Android");
+            Check(
+                ref failures,
+                android.overridden &&
+                android.maxTextureSize == 8192 &&
+                android.format == TextureImporterFormat.ASTC_6x6,
+                "Melish 1817 Android import must use 8192 max size and ASTC 6x6.");
+        }
+
+        string absoluteTexturePath = Path.Combine(
+            Directory.GetCurrentDirectory(), HistoricalTexturePath);
+        Check(
+            ref failures,
+            File.Exists(absoluteTexturePath),
+            "Melish 1817 globe source file is missing.");
+        if (File.Exists(absoluteTexturePath))
+        {
+            string actualSha256 = ComputeSha256(absoluteTexturePath);
+            Check(
+                ref failures,
+                string.Equals(
+                    actualSha256,
+                    ExpectedHistoricalSha256,
+                    StringComparison.OrdinalIgnoreCase),
+                "Melish 1817 globe source SHA-256 mismatch. Expected " +
+                ExpectedHistoricalSha256 + ", got " + actualSha256 + ".");
         }
     }
 
@@ -737,86 +821,145 @@ public static class GlassGlobeEarthAtNightChecks
         CheckCycleStep(
             ref failures,
             false,
-            BlueMarbleSeason.Spring,
-            true,
-            BlueMarbleSeason.Spring);
-        CheckCycleStep(
-            ref failures,
             false,
             BlueMarbleSeason.Summer,
+            false,
             false,
             BlueMarbleSeason.Fall);
         CheckCycleStep(
             ref failures,
             false,
+            false,
             BlueMarbleSeason.Fall,
+            false,
             false,
             BlueMarbleSeason.Winter);
         CheckCycleStep(
             ref failures,
             false,
+            false,
             BlueMarbleSeason.Winter,
+            false,
+            false,
+            BlueMarbleSeason.Spring);
+        CheckCycleStep(
+            ref failures,
+            false,
+            false,
+            BlueMarbleSeason.Spring,
+            true,
             false,
             BlueMarbleSeason.Spring);
         CheckCycleStep(
             ref failures,
             true,
-            BlueMarbleSeason.Winter,
             false,
-            BlueMarbleSeason.Summer);
+            BlueMarbleSeason.Spring,
+            false,
+            true,
+            BlueMarbleSeason.Spring);
         CheckCycleStep(
             ref failures,
+            false,
             true,
             BlueMarbleSeason.Spring,
             false,
-            BlueMarbleSeason.Summer);
-        CheckCycleStep(
-            ref failures,
-            true,
-            BlueMarbleSeason.Summer,
             false,
             BlueMarbleSeason.Summer);
-        CheckCycleStep(
-            ref failures,
-            true,
-            BlueMarbleSeason.Fall,
-            false,
-            BlueMarbleSeason.Summer);
-        CheckCycleStep(
-            ref failures,
-            false,
-            (BlueMarbleSeason)99,
-            false,
-            BlueMarbleSeason.Spring);
 
         Check(
             ref failures,
-            ViewportSurfaceCycle.GetLabel(true, BlueMarbleSeason.Summer) ==
-            "Earth at Night",
-            "Viewport surface button must label the night stop Earth at Night.");
+            !GlassGlobeSettingsState.DefaultHistoricalMapEnabled,
+            "Melish 1817 mode must default off.");
+
+        CheckCycleLabel(
+            ref failures, false, false, BlueMarbleSeason.Summer, "Summer");
+        CheckCycleLabel(
+            ref failures, false, false, BlueMarbleSeason.Fall, "Fall");
+        CheckCycleLabel(
+            ref failures, false, false, BlueMarbleSeason.Winter, "Winter");
+        CheckCycleLabel(
+            ref failures, false, false, BlueMarbleSeason.Spring, "Spring");
+        CheckCycleLabel(
+            ref failures, true, false, BlueMarbleSeason.Spring, "Earth at Night");
+        CheckCycleLabel(
+            ref failures, false, true, BlueMarbleSeason.Spring, "Melish 1817");
+
+        // Invalid seasons normalize through the existing Winter-to-Spring step.
+        CheckCycleStep(
+            ref failures,
+            false,
+            false,
+            (BlueMarbleSeason)99,
+            false,
+            false,
+            BlueMarbleSeason.Spring);
+
+        // Historical wins defensively if corrupted state enables both modes.
+        CheckCycleStep(
+            ref failures,
+            true,
+            true,
+            BlueMarbleSeason.Fall,
+            false,
+            false,
+            BlueMarbleSeason.Summer);
+        CheckCycleLabel(
+            ref failures,
+            true,
+            true,
+            BlueMarbleSeason.Fall,
+            "Melish 1817");
     }
 
     private static void CheckCycleStep(
         ref int failures,
         bool nightLightsEnabled,
+        bool historicalMapEnabled,
         BlueMarbleSeason season,
         bool expectedNightLightsEnabled,
+        bool expectedHistoricalMapEnabled,
         BlueMarbleSeason expectedSeason)
     {
         bool nextNightLightsEnabled;
+        bool nextHistoricalMapEnabled;
         BlueMarbleSeason nextSeason;
         ViewportSurfaceCycle.ResolveNext(
             nightLightsEnabled,
+            historicalMapEnabled,
             season,
             out nextNightLightsEnabled,
+            out nextHistoricalMapEnabled,
             out nextSeason);
 
         Check(
             ref failures,
             nextNightLightsEnabled == expectedNightLightsEnabled &&
+            nextHistoricalMapEnabled == expectedHistoricalMapEnabled &&
             nextSeason == expectedSeason,
             "Viewport surface cycle produced the wrong transition from " +
-            ViewportSurfaceCycle.GetLabel(nightLightsEnabled, season) + ".");
+            ViewportSurfaceCycle.GetLabel(
+                nightLightsEnabled,
+                historicalMapEnabled,
+                season) + ".");
+    }
+
+    private static void CheckCycleLabel(
+        ref int failures,
+        bool nightLightsEnabled,
+        bool historicalMapEnabled,
+        BlueMarbleSeason season,
+        string expectedLabel)
+    {
+        string actualLabel = ViewportSurfaceCycle.GetLabel(
+            nightLightsEnabled,
+            historicalMapEnabled,
+            season);
+        Check(
+            ref failures,
+            actualLabel == expectedLabel,
+            "Viewport surface button label must be " + expectedLabel +
+            ", got " + actualLabel + ".");
     }
 
     private struct NightSourceManifestEntry

@@ -203,6 +203,14 @@ public static class GlassGlobeBuildValidator
         LogRequired(ref errors, HasBlueMarbleResource("Summer", 16384, 8192), "GlassGlobeBuildValidator: Blue Marble summer texture must import at 16384x8192.");
         LogRequired(ref errors, HasBlueMarbleResource("Fall", 4096, 2048), "GlassGlobeBuildValidator: Blue Marble fall texture must import at 4096x2048.");
         LogRequired(ref errors, HasBlueMarbleResource("Winter", 4096, 2048), "GlassGlobeBuildValidator: Blue Marble winter texture must import at 4096x2048.");
+        Texture2D melishTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
+            "Assets/GlassGlobe/Resources/GlassGlobeHistoricalMelish1817.jpg");
+        LogRequired(
+            ref errors,
+            melishTexture != null &&
+            melishTexture.width == 8192 &&
+            melishTexture.height == 4096,
+            "GlassGlobeBuildValidator: Melish 1817 texture must import at 8192x4096.");
 
         SunMoonBackground sunMoon = FindInScene<SunMoonBackground>(scene);
         LogRequired(ref errors, sunMoon != null, "GlassGlobeBuildValidator: missing SunMoonBackground.");

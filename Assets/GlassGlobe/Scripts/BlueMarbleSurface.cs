@@ -7,9 +7,9 @@ namespace GlassGlobe
     /// Applies the globe surface setting (Blue Moon glass or a NASA Blue Marble
     /// seasonal map) to the existing globe material. Like EarthStyleController
     /// this is attached to the GlobeRenderer object and driven by
-    /// GlassGlobeSettingsController rather than polling in Update. Seasonal maps
-    /// are loaded from Resources on demand so only the selected map occupies
-    /// runtime texture memory.
+    /// GlassGlobeSettingsController rather than polling in Update. Seasonal and
+    /// historical maps are loaded from Resources on demand so only the selected
+    /// map occupies runtime texture memory.
     /// </summary>
     public sealed class BlueMarbleSurface : MonoBehaviour
     {
@@ -18,6 +18,7 @@ namespace GlassGlobe
         public string Status { get; private set; }
 
         private const string ResourcePrefix = "GlassGlobeBlueMarble";
+        private const string HistoricalResourceName = "GlassGlobeHistoricalMelish1817";
         private static readonly int BlueMarbleTexId = Shader.PropertyToID("_BlueMarbleTex");
         private static readonly int BlueMarbleOpacityId = Shader.PropertyToID("_BlueMarbleOpacity");
 
@@ -109,10 +110,12 @@ namespace GlassGlobe
             }
 
             BlueMarbleSeason season = GlassGlobeSettingsState.BlueMarbleSeasonChoice;
-            string resourceName = ResolveSeasonResourceName(season);
+            bool historicalMapEnabled = GlassGlobeSettingsState.HistoricalMapEnabled;
+            string resourceName = ResolveResourceName(historicalMapEnabled, season);
+            string mapLabel = ResolveMapLabel(historicalMapEnabled, season);
             if (loadedTexture != null && loadedResourceName == resourceName)
             {
-                // A request for a different season may still be in flight. It no
+                // A request for a different map may still be in flight. It no
                 // longer owns the desired state and must not block a later retry.
                 if (loadingResourceName != null)
                 {
@@ -120,7 +123,7 @@ namespace GlassGlobe
                     loadingResourceName = null;
                 }
 
-                ApplyLoadedTexture(material, season);
+                ApplyLoadedTexture(material, mapLabel);
                 return true;
             }
 
@@ -128,10 +131,10 @@ namespace GlassGlobe
             {
                 int generation = ++loadGeneration;
                 loadingResourceName = resourceName;
-                StartCoroutine(LoadSeasonTexture(resourceName, season, generation));
+                StartCoroutine(LoadSurfaceTexture(resourceName, mapLabel, generation));
             }
 
-            // Keep the previous season visible while the replacement is decoded.
+            // Keep the previous map visible while the replacement is decoded.
             // On first use there is no previous texture, so leave the layer clear
             // instead of briefly showing the shader's black fallback.
             if (loadedTexture == null)
@@ -139,13 +142,13 @@ namespace GlassGlobe
                 material.SetFloat(BlueMarbleOpacityId, 0f);
             }
 
-            Status = "Loading Blue Marble (" + season + ")";
+            Status = "Loading " + mapLabel;
             return true;
         }
 
-        private IEnumerator LoadSeasonTexture(
+        private IEnumerator LoadSurfaceTexture(
             string resourceName,
-            BlueMarbleSeason requestedSeason,
+            string requestedMapLabel,
             int generation)
         {
             ResourceRequest request = Resources.LoadAsync<Texture2D>(resourceName);
@@ -163,14 +166,18 @@ namespace GlassGlobe
             bool requestIsCurrent =
                 ownsRequestMarker &&
                 GlassGlobeSettingsState.EffectiveBlueMarbleEnabled &&
-                ResolveSeasonResourceName(GlassGlobeSettingsState.BlueMarbleSeasonChoice) == resourceName;
+                ResolveResourceName(
+                    GlassGlobeSettingsState.HistoricalMapEnabled,
+                    GlassGlobeSettingsState.BlueMarbleSeasonChoice) == resourceName;
 
             if (!requestIsCurrent)
             {
                 bool sameResourceStillWanted =
                     isActiveAndEnabled &&
                     GlassGlobeSettingsState.EffectiveBlueMarbleEnabled &&
-                    ResolveSeasonResourceName(GlassGlobeSettingsState.BlueMarbleSeasonChoice) == resourceName;
+                    ResolveResourceName(
+                        GlassGlobeSettingsState.HistoricalMapEnabled,
+                        GlassGlobeSettingsState.BlueMarbleSeasonChoice) == resourceName;
                 if (texture != null &&
                     texture != loadedTexture &&
                     !sameResourceStillWanted)
@@ -189,7 +196,7 @@ namespace GlassGlobe
                     Resources.UnloadAsset(texture);
                 }
 
-                Status = "Globe material not found after loading " + requestedSeason;
+                Status = "Globe material not found after loading " + requestedMapLabel;
                 yield break;
             }
 
@@ -197,16 +204,16 @@ namespace GlassGlobe
             {
                 material.SetFloat(BlueMarbleOpacityId, 0f);
                 ReleaseLoadedTexture(material);
-                Status = requestedSeason + " Blue Marble map missing from Resources";
+                Status = requestedMapLabel + " map missing from Resources";
                 yield break;
             }
 
             Texture2D previousTexture = loadedTexture;
             loadedTexture = texture;
             loadedResourceName = resourceName;
-            ApplyLoadedTexture(material, requestedSeason);
+            ApplyLoadedTexture(material, requestedMapLabel);
             Debug.Log(
-                "GlassGlobe Blue Marble " + requestedSeason + " loaded at " +
+                "GlassGlobe " + requestedMapLabel + " loaded at " +
                 texture.width + "x" + texture.height +
                 "; device max texture size=" + SystemInfo.maxTextureSize + ".");
 
@@ -216,14 +223,14 @@ namespace GlassGlobe
             }
         }
 
-        private void ApplyLoadedTexture(Material material, BlueMarbleSeason season)
+        private void ApplyLoadedTexture(Material material, string mapLabel)
         {
             material.SetTexture(BlueMarbleTexId, loadedTexture);
             float opacity = GlassGlobeSettingsState.BlueMarbleOpacity;
             material.SetFloat(BlueMarbleOpacityId, opacity);
             Status = string.Format(
-                "Blue Marble ({0}). Transparency {1:0}%",
-                season,
+                "{0}. Transparency {1:0}%",
+                mapLabel,
                 opacity * 100f);
         }
 
@@ -258,6 +265,24 @@ namespace GlassGlobe
                 default:
                     return ResourcePrefix + "Summer";
             }
+        }
+
+        private static string ResolveResourceName(
+            bool historicalMapEnabled,
+            BlueMarbleSeason season)
+        {
+            return historicalMapEnabled
+                ? HistoricalResourceName
+                : ResolveSeasonResourceName(season);
+        }
+
+        private static string ResolveMapLabel(
+            bool historicalMapEnabled,
+            BlueMarbleSeason season)
+        {
+            return historicalMapEnabled
+                ? ViewportSurfaceCycle.Melish1817Label
+                : "Blue Marble (" + season + ")";
         }
 
         private Material ResolveGlobeMaterial()

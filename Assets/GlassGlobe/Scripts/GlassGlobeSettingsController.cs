@@ -303,10 +303,10 @@ namespace GlassGlobe
 
         /// <summary>
         /// Faint surface button along the bottom of the viewport. It cycles the
-        /// four Blue Marble seasons plus Earth at Night, and hides when Blue
-        /// Marble is not the underlying surface. Drawn in the same UI space the
-        /// touch layer reports points in, so the stored rect can be hit-tested
-        /// directly against a tap.
+        /// four Blue Marble seasons, Earth at Night, and Melish 1817, and hides
+        /// when Blue Marble is not the underlying surface. Drawn in the same UI
+        /// space the touch layer reports points in, so the stored rect can be
+        /// hit-tested directly against a tap.
         /// </summary>
         private void DrawSeasonCycleButton()
         {
@@ -334,6 +334,7 @@ namespace GlassGlobe
                 seasonCycleButtonRect,
                 ViewportSurfaceCycle.GetLabel(
                     GlassGlobeSettingsState.NightLightsEnabled,
+                    GlassGlobeSettingsState.HistoricalMapEnabled,
                     GlassGlobeSettingsState.BlueMarbleSeasonChoice),
                 seasonButtonStyle);
             GUI.color = previousColor;
@@ -635,9 +636,19 @@ namespace GlassGlobe
 
         private void SetNightLightsEnabled(bool value)
         {
+            bool historicalMapWasEnabled =
+                GlassGlobeSettingsState.HistoricalMapEnabled;
             GlassGlobeSettingsState.SetNightLightsEnabled(value);
             nightLightsSettingApplied = false;
             ApplyEarthStyleSettings();
+
+            // Enabling Earth at Night retires the mutually exclusive historical
+            // map in the settings state, so reload the retained seasonal map.
+            if (historicalMapWasEnabled &&
+                !GlassGlobeSettingsState.HistoricalMapEnabled)
+            {
+                MarkBlueMarbleDirty();
+            }
         }
 
         private void SetNightLightsOpacity(float value)
@@ -722,30 +733,64 @@ namespace GlassGlobe
         }
 
         /// <summary>
-        /// Advances through Summer, Fall, Winter, Spring, and Earth at Night.
-        /// Earth at Night preserves the underlying season and both opacity
-        /// settings; leaving it advances to the following season.
+        /// Advances through Summer, Fall, Winter, Spring, Earth at Night, and
+        /// Melish 1817. Earth at Night preserves the underlying season and both
+        /// opacity settings; Melish advances back to Summer.
         /// </summary>
         private void CycleViewportSurface()
         {
             bool nightLightsEnabled = GlassGlobeSettingsState.NightLightsEnabled;
+            bool historicalMapEnabled =
+                GlassGlobeSettingsState.HistoricalMapEnabled;
             BlueMarbleSeason season = GlassGlobeSettingsState.BlueMarbleSeasonChoice;
             bool nextNightLightsEnabled;
+            bool nextHistoricalMapEnabled;
             BlueMarbleSeason nextSeason;
             ViewportSurfaceCycle.ResolveNext(
                 nightLightsEnabled,
+                historicalMapEnabled,
                 season,
                 out nextNightLightsEnabled,
+                out nextHistoricalMapEnabled,
                 out nextSeason);
 
-            if (nextSeason != season)
+            bool historicalMapChanged =
+                nextHistoricalMapEnabled != historicalMapEnabled;
+            bool nightLightsChanged =
+                nextNightLightsEnabled != nightLightsEnabled;
+            bool seasonChanged = nextSeason != season;
+
+            if (historicalMapChanged)
             {
-                SelectBlueMarbleSeason(nextSeason);
+                // Entering Melish disables Night in the state setter before the
+                // historical texture request can begin.
+                GlassGlobeSettingsState.SetHistoricalMapEnabled(
+                    nextHistoricalMapEnabled);
             }
 
-            if (nextNightLightsEnabled != nightLightsEnabled)
+            if (nextNightLightsEnabled !=
+                GlassGlobeSettingsState.NightLightsEnabled)
             {
-                SetNightLightsEnabled(nextNightLightsEnabled);
+                GlassGlobeSettingsState.SetNightLightsEnabled(
+                    nextNightLightsEnabled);
+            }
+
+            if (seasonChanged)
+            {
+                GlassGlobeSettingsState.SetBlueMarbleSeason(nextSeason);
+            }
+
+            if (nightLightsChanged || historicalMapChanged)
+            {
+                nightLightsSettingApplied = false;
+                ApplyEarthStyleSettings();
+            }
+
+            // Apply Earth style first so Night -> Melish clears fallback opacity,
+            // streamed tiles, and coverage before the historical load starts.
+            if (historicalMapChanged || seasonChanged)
+            {
+                MarkBlueMarbleDirty();
             }
         }
 

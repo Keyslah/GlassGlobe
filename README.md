@@ -21,6 +21,9 @@ way through.
   toggleable over Blue Moon or Blue Marble with adjustable transparency. On
   Android, the complete 500m source map is region-decoded from eight tiles while
   the global 3600×1800 map remains available as a fallback.
+- **Melish 1817 surface** — John Melish's hand-colored historical world map,
+  reprojected from Mercator to an 8192×4096 globe texture and loaded on demand
+  after Earth at Night in the viewport surface cycle.
 - **Sky** — the Milky Way, Sun, and Moon at their true positions for your location
   and the current time, with the Moon showing its real phase.
 - **Live data** — satellite clouds and rain radar, the ISS and Tiangong, and
@@ -120,6 +123,31 @@ Android region-decodes the required source areas at runtime instead. NASA Earth
 Observatory images by Joshua Stevens, using Suomi NPP VIIRS data from Miguel
 Román, NASA Goddard Space Flight Center. `GlassGlobeEarthAtNightChecks` verifies
 the NASA source files before a release build.
+
+**Melish 1817 historical surface:** John Melish, Samuel Harrison, Hugh Bridport,
+and George Murray, [*The world on Mercator's
+projection*](https://www.loc.gov/item/78692118/), Philadelphia, 1817, Library of
+Congress Geography and Map Division, item 78692118, digital ID
+`g3200.ct007148` — public domain. The runtime texture was derived from the
+[14918×11417 scan on Wikimedia Commons](https://commons.wikimedia.org/wiki/File:The_world_on_Mercator%27s_projection,_LOC_78692118.jpg)
+(source JPEG SHA-256
+`68139d41b7f84d39f5b07744aa27b363976a8aad9b4605a0c54a5088c5c58eae`).
+The conversion used visible longitude controls at −180°, −90°, 0°, 90°, and
+180° across the 60°N, equator, and 60°S graticules, with the geographic field
+bounded near 79°N. In source pixels, those five control points were
+`(348,2684) (3926,2694) (7485,2704) (11026,2714) (14549,2724)` at 60°N,
+`(338,5698) (3913,5700) (7485,5703) (11021,5705) (14568,5708)` at the equator,
+and `(325,8672) (3915,8675) (7487,8678) (11033,8680) (14581,8683)` at 60°S.
+The full printed graticule's corner bounds were approximately `(354,375)`,
+`(14536,418)`, `(14569,11005)`, and `(319,10982)`. Longitude remains in
+standard west-to-east orientation; the Mercator vertical coordinate was
+resampled to equirectangular latitude. The
+title, tables, cartouche, ornaments, frame, and scanner margins were excluded.
+The source becomes unreliable below about 60°S, so 58–60°S and 77.5–79°N fade
+into sampled parchment and the unmapped polar caps use compatible parchment
+fill instead of stretched map rows. Only the resulting 8192×4096 runtime JPEG is
+shipped in `Resources`; its SHA-256 is
+`c34a82d233b192bf0ccff21654e609ccbbe64790dca5250d2843937f08b208fe`.
 
 **Milky Way panorama:** [ESO/S. Brunier](https://www.eso.org/public/images/eso0932a/)
 (eso0932a), CC BY 4.0. The panorama is authored in galactic coordinates; the app

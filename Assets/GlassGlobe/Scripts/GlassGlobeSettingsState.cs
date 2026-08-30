@@ -29,22 +29,34 @@ namespace GlassGlobe
 
     /// <summary>
     /// Pure transition rules for the viewport surface button. Earth at Night
-    /// stays an independent overlay rather than becoming a fake Blue Marble
-    /// season, so its opacity and the underlying seasonal choice remain saved.
+    /// stays an independent overlay, while Melish 1817 selects a different map
+    /// through the Blue Marble texture path. Neither becomes a fake season, so
+    /// their state and the underlying seasonal choice remain saved separately.
     /// </summary>
     public static class ViewportSurfaceCycle
     {
         public const string EarthAtNightLabel = "Earth at Night";
+        public const string Melish1817Label = "Melish 1817";
 
-        public static string GetLabel(bool nightLightsEnabled, BlueMarbleSeason season)
+        public static string GetLabel(
+            bool nightLightsEnabled,
+            bool historicalMapEnabled,
+            BlueMarbleSeason season)
         {
+            if (historicalMapEnabled)
+            {
+                return Melish1817Label;
+            }
+
             return nightLightsEnabled ? EarthAtNightLabel : season.ToString();
         }
 
         public static void ResolveNext(
             bool nightLightsEnabled,
+            bool historicalMapEnabled,
             BlueMarbleSeason season,
             out bool nextNightLightsEnabled,
+            out bool nextHistoricalMapEnabled,
             out BlueMarbleSeason nextSeason)
         {
             int seasonIndex = Mathf.Clamp(
@@ -53,21 +65,35 @@ namespace GlassGlobe
                 (int)BlueMarbleSeason.Winter);
             BlueMarbleSeason normalizedSeason = (BlueMarbleSeason)seasonIndex;
 
+            // Historical wins defensively if an older or corrupted save ever
+            // presents both special modes at once. Their persisted setters keep
+            // normal runtime state mutually exclusive.
+            if (historicalMapEnabled)
+            {
+                nextNightLightsEnabled = false;
+                nextHistoricalMapEnabled = false;
+                nextSeason = BlueMarbleSeason.Summer;
+                return;
+            }
+
             if (nightLightsEnabled)
             {
                 nextNightLightsEnabled = false;
-                nextSeason = BlueMarbleSeason.Summer;
+                nextHistoricalMapEnabled = true;
+                nextSeason = normalizedSeason;
                 return;
             }
 
             if (normalizedSeason == BlueMarbleSeason.Spring)
             {
                 nextNightLightsEnabled = true;
+                nextHistoricalMapEnabled = false;
                 nextSeason = BlueMarbleSeason.Spring;
                 return;
             }
 
             nextNightLightsEnabled = false;
+            nextHistoricalMapEnabled = false;
             nextSeason = normalizedSeason == BlueMarbleSeason.Winter
                 ? BlueMarbleSeason.Spring
                 : (BlueMarbleSeason)(seasonIndex + 1);
@@ -92,6 +118,7 @@ namespace GlassGlobe
         public const BlueMarbleSeason DefaultBlueMarbleSeason =
             BlueMarbleSeason.Summer;
         public const bool DefaultNightLightsEnabled = false;
+        public const bool DefaultHistoricalMapEnabled = false;
 
         private const string CameraFeedKey = Prefix + "CameraFeed";
         private const string MainHudKey = Prefix + "MainHud";
@@ -125,6 +152,8 @@ namespace GlassGlobe
         private const string LegacyNightLightsKey = Prefix + "NightLights";
         private const string NightLightsKey = Prefix + "EarthAtNightEnabledV2";
         private const string NightLightsOpacityKey = Prefix + "EarthAtNightOpacityV1";
+        private const string HistoricalMapEnabledKey =
+            Prefix + "HistoricalMelish1817EnabledV1";
         private const string RimGlowKey = Prefix + "RimGlow";
         private const string WaterArtKey = Prefix + "WaterArt";
         private const string WaterArtOpacityKey = Prefix + "WaterArtOpacity";
@@ -192,6 +221,7 @@ namespace GlassGlobe
         public static bool SeasonButtonVisible { get; private set; }
         public static bool NightLightsEnabled { get; private set; }
         public static float NightLightsOpacity { get; private set; }
+        public static bool HistoricalMapEnabled { get; private set; }
         public static bool RimGlowEnabled { get; private set; }
         public static bool WaterArtEnabled { get; private set; }
         public static float WaterArtOpacity { get; private set; }
@@ -239,7 +269,9 @@ namespace GlassGlobe
             get
             {
                 Load();
-                return DisplayCategoryEnabled && NightLightsEnabled;
+                return DisplayCategoryEnabled &&
+                    NightLightsEnabled &&
+                    !HistoricalMapEnabled;
             }
         }
 
@@ -403,6 +435,7 @@ namespace GlassGlobe
             new PrefEntry(LegacyNightLightsKey, PrefKind.Number, false),
             new PrefEntry(NightLightsKey, PrefKind.Number),
             new PrefEntry(NightLightsOpacityKey, PrefKind.Decimal),
+            new PrefEntry(HistoricalMapEnabledKey, PrefKind.Number),
             new PrefEntry(RimGlowKey, PrefKind.Number),
             new PrefEntry(WaterArtKey, PrefKind.Number),
             new PrefEntry(WaterArtOpacityKey, PrefKind.Decimal),
@@ -680,6 +713,9 @@ namespace GlassGlobe
                 DefaultNightLightsEnabled);
             NightLightsOpacity = Mathf.Clamp01(
                 PlayerPrefs.GetFloat(NightLightsOpacityKey, 1f));
+            HistoricalMapEnabled = ReadBool(
+                HistoricalMapEnabledKey,
+                DefaultHistoricalMapEnabled);
             RimGlowEnabled = false;
             WaterArtEnabled = ReadBool(WaterArtKey, true);
             WaterArtOpacity = Mathf.Clamp01(PlayerPrefs.GetFloat(WaterArtOpacityKey, 0.35f));
@@ -924,6 +960,12 @@ namespace GlassGlobe
         public static void SetNightLightsEnabled(bool value)
         {
             Load();
+            if (value && HistoricalMapEnabled)
+            {
+                HistoricalMapEnabled = false;
+                WriteBool(HistoricalMapEnabledKey, false);
+            }
+
             NightLightsEnabled = value;
             WriteBool(NightLightsKey, value);
         }
@@ -933,6 +975,19 @@ namespace GlassGlobe
             Load();
             NightLightsOpacity = Mathf.Clamp01(value);
             WriteFloat(NightLightsOpacityKey, NightLightsOpacity);
+        }
+
+        public static void SetHistoricalMapEnabled(bool value)
+        {
+            Load();
+            if (value && NightLightsEnabled)
+            {
+                NightLightsEnabled = false;
+                WriteBool(NightLightsKey, false);
+            }
+
+            HistoricalMapEnabled = value;
+            WriteBool(HistoricalMapEnabledKey, value);
         }
 
         public static void SetWaterArtEnabled(bool value)
